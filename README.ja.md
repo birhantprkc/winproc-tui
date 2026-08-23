@@ -135,10 +135,16 @@ cargo build --release
 .\target\release\winproc-tui.exe
 ```
 
-Rust 開発者は、手元のソースコードを `cargo install` でインストールし、`winproc-tui` コマンドとして利用することもできます。
+Rust 開発者は、crates.io で公開されたソースパッケージをインストールできます。Cargo が手元でビルドするため、GitHub Releases で公開されるビルド済み Windows バイナリとは別の導入方法です。
 
 ```powershell
-cargo install --path .
+cargo install winproc-tui --locked
+```
+
+代わりに、現在のチェックアウトをインストールする場合:
+
+```powershell
+cargo install --path . --locked
 ```
 
 ## 詳細情報

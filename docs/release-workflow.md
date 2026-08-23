@@ -1,15 +1,16 @@
 # Release Workflow
 
-This document describes how to create a GitHub Release for `winproc-tui` and attach a Windows x64 binary package.
+This document describes how to publish `winproc-tui` through GitHub Releases, crates.io, Scoop, and Windows Package Manager.
 
 The examples below use `vX.Y.Z` as a placeholder for the release version (for example `v0.1.0`) and `TX230/winproc-tui` as the target repository.
 Replace `vX.Y.Z` (and the numeric `X.Y.Z` form used in file names) with the actual release version each time; the procedure itself does not change between versions.
 
-Use the document as three independent runbooks with explicit verification between them:
+Use the document as four independent runbooks with explicit verification between them:
 
 1. [GitHub Release](#manual-release-procedure): build, package, draft, publish, and verify the immutable release asset.
-2. [Scoop Bucket](#scoop-bucket-publication): update and verify `TX230/scoop-bucket` only after the GitHub Release is public.
-3. [Windows Package Manager](#windows-package-manager-publication): submit to `microsoft/winget-pkgs` only after the same asset is public and verified.
+2. [crates.io](#cratesio-source-publication): publish and verify the source package used by `cargo install` only after the matching GitHub Release is public.
+3. [Scoop Bucket](#scoop-bucket-publication): update and verify `TX230/scoop-bucket` only after the GitHub Release is public.
+4. [Windows Package Manager](#windows-package-manager-publication): submit to `microsoft/winget-pkgs` only after the same asset is public and verified.
 
 Completing one runbook does not authorize or imply completion of the next.
 
@@ -84,10 +85,11 @@ The important rule is that the uploaded binary should be built from the same com
 Publish in this order:
 
 1. Publish and verify the versioned GitHub Release.
-2. Update and verify `TX230/scoop-bucket`.
-3. Submit the version to `microsoft/winget-pkgs`.
+2. Publish and verify the same version on crates.io.
+3. Update and verify `TX230/scoop-bucket`.
+4. Submit the version to `microsoft/winget-pkgs`.
 
-Both package-manager manifests must use the immutable version-specific Release URL and the SHA-256 of the published asset. Do not prepare them from a draft `untagged-*` asset URL, and do not replace a published asset after either manifest refers to it.
+The crates.io package must be created from the same tagged commit as the GitHub Release. Both Windows package-manager manifests must use the immutable version-specific Release URL and the SHA-256 of the published asset. Do not prepare them from a draft `untagged-*` asset URL, and do not replace a published asset after either manifest refers to it.
 
 ## Manual Release Procedure
 
@@ -109,14 +111,15 @@ Replace `X.Y.Z` with the actual release version (for example `0.1.0`).
 
 ### Packaging Helper Script
 
-The repository also provides a helper script for the test, build, zip, and checksum steps:
+The repository also provides a helper script for the test, source-package verification, build, zip, and checksum steps:
 
 ```powershell
 .\scripts\package-release.ps1 -Version 0.1.0
 ```
 
 If `-Version` is omitted, the script uses the package version from `Cargo.toml`.
-The script creates `dist\winproc-tui-X.Y.Z-windows-x64.zip` and `dist\winproc-tui-X.Y.Z-windows-x64.zip.sha256`.
+The script creates `target\package\winproc-tui-X.Y.Z.crate`, `dist\winproc-tui-X.Y.Z-windows-x64.zip`, and `dist\winproc-tui-X.Y.Z-windows-x64.zip.sha256`.
+The `.crate` file is a locally verified source package for crates.io; do not attach it to the GitHub Release.
 Before packaging, it verifies that the executable does not dynamically import Microsoft C runtime DLLs.
 Tag creation and GitHub Release creation remain explicit manual steps so that the maintainer can confirm the exact source commit and draft release contents before publishing.
 
@@ -186,7 +189,7 @@ target\release\winproc-tui.exe
 
 ### 6. Create the Distribution Package and Checksum
 
-After completing the test and build steps manually, use the packaging helper without rerunning them. This command creates both the release zip and its `.sha256` checksum file:
+After completing the test and build steps manually, use the packaging helper without rerunning them. This command verifies the crates.io source package, then creates the release zip and its `.sha256` checksum file:
 
 ```powershell
 .\scripts\package-release.ps1 -Version $Version -SkipTests -SkipBuild
@@ -302,6 +305,67 @@ gh release edit $Tag `
 ```
 
 Run `gh release view` again after publication. Confirm that `isDraft` is `false`, the public asset URL contains `/releases/download/$Tag/`, and the GitHub asset digest matches the local SHA-256 before updating Scoop or winget.
+
+## crates.io Source Publication
+
+crates.io distributes the source package used by `cargo install winproc-tui --locked`. Cargo compiles that package on the user's machine, so this route requires Rust 1.95.0 or later and the MSVC linker from Build Tools for Visual Studio 2026. It is separate from the prebuilt, statically linked Windows binary distributed through GitHub Releases, Scoop, and winget.
+
+Registry and Git installs do not use the repository's `.cargo/config.toml`. The static Microsoft C runtime guarantee therefore applies to the prebuilt GitHub Release binary, not to a binary compiled by a user's Cargo configuration.
+
+Publishing a crate version is permanent: it cannot be overwritten or deleted. A broken version can be yanked, but its source remains available. Never use `--allow-dirty`, and never publish a source package that was created from a commit other than the matching release tag.
+
+### Prepare crates.io Authentication
+
+For the first publication, sign in to crates.io with the maintainer's GitHub account, verify the account email address, create a scoped API token, and store it with Cargo:
+
+```powershell
+cargo login
+```
+
+Do not place the token in the repository, command output, release notes, or shell history.
+
+### Verify the Source Package
+
+From the clean checkout used for the GitHub Release, confirm that `HEAD` is the release tag and that the package version matches:
+
+```powershell
+git status --short
+git rev-parse HEAD
+git rev-list -n 1 $Tag
+cargo metadata --no-deps --format-version 1
+```
+
+Inspect the exact source-package file list, then repeat Cargo's package build without uploading:
+
+```powershell
+cargo package --list
+cargo publish --dry-run --locked
+```
+
+The package should contain only the Cargo-generated manifest and VCS metadata, `Cargo.lock`, `build.rs`, `LICENSE`, `README.md`, the source tree, and the documentation/screenshots referenced by the README. It must not contain repository administration files, CI configuration, release scripts, local logs, or generated recordings.
+
+### Publish and Verify crates.io
+
+Publish only after the matching GitHub Release is public and verified:
+
+```powershell
+cargo publish --locked
+```
+
+The command may finish before the new version is visible in the registry index. Verify the registry explicitly, then install the exact version into an isolated root:
+
+```powershell
+cargo info --registry crates-io winproc-tui
+
+$CargoInstallRoot = Join-Path $env:TEMP "winproc-tui-cargo-$Version"
+cargo install winproc-tui `
+  --version $Version `
+  --locked `
+  --root $CargoInstallRoot
+& "$CargoInstallRoot\bin\winproc-tui.exe" --version
+```
+
+Confirm that `cargo info` reports the intended version and repository, the isolated install completes from crates.io, and the executable reports `winproc-tui $Version`. Do not report the Cargo route as available or merge its README installation command into the release commit until these checks succeed.
 
 ## Scoop Bucket Publication
 

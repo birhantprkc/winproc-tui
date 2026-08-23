@@ -135,10 +135,16 @@ cargo build --release
 .\target\release\winproc-tui.exe
 ```
 
-Rust developers can optionally install the current checkout as a command:
+Rust developers can install the published source package from crates.io. Cargo builds it locally; this is separate from the prebuilt Windows binary on GitHub Releases.
 
 ```powershell
-cargo install --path .
+cargo install winproc-tui --locked
+```
+
+To install the current checkout instead:
+
+```powershell
+cargo install --path . --locked
 ```
 
 ## More Information

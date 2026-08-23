@@ -133,6 +133,7 @@ $ZipName = "winproc-tui-$Version-windows-x64.zip"
 $ZipPath = Join-Path $RepoRoot "dist\$ZipName"
 $Sha256Path = "$ZipPath.sha256"
 $ExePath = Join-Path $RepoRoot "target\release\winproc-tui.exe"
+$CratePath = Join-Path $RepoRoot "target\package\winproc-tui-$Version.crate"
 $PackageEntries = @(
     [pscustomobject]@{ Source = $ExePath; Destination = "winproc-tui.exe" }
     [pscustomobject]@{ Source = (Join-Path $RepoRoot "LICENSE"); Destination = "LICENSE" }
@@ -146,6 +147,12 @@ Push-Location $RepoRoot
 try {
     if (-not $SkipTests) {
         Invoke-CheckedNativeCommand cargo test
+    }
+
+    Invoke-CheckedNativeCommand cargo package --locked
+
+    if (-not (Test-Path $CratePath)) {
+        throw "Cargo source package was not found: $CratePath"
     }
 
     if (-not $SkipBuild) {
@@ -190,6 +197,7 @@ try {
     $checksumText = "$($hash.Hash)  $ZipName`n"
     [System.IO.File]::WriteAllText($Sha256Path, $checksumText, [System.Text.UTF8Encoding]::new($false))
 
+    Write-Host "Created source package: $CratePath"
     Write-Host "Created package: $ZipPath"
     Write-Host "Created checksum: $Sha256Path"
     Write-Host "After publishing the GitHub Release, update the Scoop manifest:"

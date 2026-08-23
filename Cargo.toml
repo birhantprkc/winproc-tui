@@ -1,12 +1,23 @@
 [package]
 name = "winproc-tui"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.95"
 description = "TUI process investigation tool for Windows 11 x64: per-process memory, handles, GUI/GPU resources, I/O, A/B comparison, and JSON Lines recording with Log view."
 license = "MIT"
 repository = "https://github.com/TX230/winproc-tui"
 readme = "README.md"
+keywords = ["windows", "process", "monitor", "tui", "diagnostics"]
+categories = ["command-line-utilities"]
+publish = ["crates-io"]
+include = [
+    "/src/**",
+    "/assets/screenshots/*.png",
+    "/docs/**",
+    "/build.rs",
+    "/LICENSE",
+    "/README.md",
+]
 
 [dependencies]
 anyhow = "1.0.104"
