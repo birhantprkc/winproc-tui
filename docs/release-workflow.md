@@ -344,9 +344,25 @@ cargo publish --dry-run --locked
 
 The package should contain only the Cargo-generated manifest and VCS metadata, `Cargo.lock`, `build.rs`, `LICENSE`, `README.md`, the source tree, and the documentation/screenshots referenced by the README. It must not contain repository administration files, CI configuration, release scripts, local logs, or generated recordings.
 
+### Review Registration Metadata and Obtain Approval
+
+Immediately before running `cargo publish`, present the exact crates.io registration information from the final clean release-tag checkout to the maintainer and wait for explicit approval. This confirmation is required for every version, including patch releases. At minimum, present and verify:
+
+- Package name and version.
+- Description.
+- License and repository URL.
+- README path.
+- Keywords and categories.
+- Rust version requirement.
+- The source-package file list confirmed by `cargo package --list`.
+
+crates.io receives this information from the packaged `Cargo.toml`; it is not synchronized automatically from the GitHub About text or other repository copy. Authentication, a successful dry run, approval of the GitHub Release, or a general instruction to continue the release does not authorize `cargo publish`. Do not run the publish command until the maintainer explicitly confirms the displayed registration information.
+
+If the version, metadata, README, or packaged files change after confirmation, repeat the dry run, present the final registration information again, and obtain a new explicit approval before publishing.
+
 ### Publish and Verify crates.io
 
-Publish only after the matching GitHub Release is public and verified:
+Publish only after the matching GitHub Release is public and verified and the maintainer has explicitly approved the final crates.io registration information:
 
 ```powershell
 cargo publish --locked
