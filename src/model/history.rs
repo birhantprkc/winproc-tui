@@ -104,6 +104,33 @@ impl SystemMetric {
         }
     }
 
+    pub(crate) fn graph_title_label(self) -> &'static str {
+        match self {
+            Self::CpuAverage => "CPU Usage",
+            Self::ThreadCount => "CPU Threads",
+            Self::ProcessCount => "CPU Processes",
+            Self::PhysicalMemory => "MEM In use",
+            Self::ModifiedMemory => "MEM Modified",
+            Self::StandbyMemory => "MEM Standby",
+            Self::FreeZeroedMemory => "MEM Free + Zeroed",
+            Self::Committed => "MEM Commit charge",
+            Self::PagedPool => "MEM Paged Pool",
+            Self::NonpagedPool => "MEM Nonpaged Pool",
+            Self::PagesInput => "MEM Pages In/s",
+            Self::PagesOutput => "MEM Pages Out/s",
+            Self::GpuUtilization => "GPU Usage",
+            Self::GpuEncode => "GPU Encode",
+            Self::GpuDecode => "GPU Decode",
+            Self::GpuDedicated => "GPU Dedicated",
+            Self::GpuShared => "GPU Shared",
+            Self::NetworkReceived => "NW/DISK Net Rx",
+            Self::NetworkSent => "NW/DISK Net Tx",
+            Self::DiskRead => "NW/DISK Disk R",
+            Self::DiskWrite => "NW/DISK Disk W",
+            Self::DiskQueueLength => "NW/DISK Disk Q",
+        }
+    }
+
     pub(crate) fn panel_label(self) -> &'static str {
         match self {
             Self::CpuAverage | Self::ThreadCount | Self::ProcessCount => "CPU",

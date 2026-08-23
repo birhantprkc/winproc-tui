@@ -571,6 +571,13 @@ impl GraphSlot {
         }
     }
 
+    pub(crate) fn graph_title_metric_label(&self) -> &'static str {
+        match self {
+            Self::Process { metric, .. } => metric.label(),
+            Self::System { metric } | Self::Gpu { metric, .. } => metric.graph_title_label(),
+        }
+    }
+
     pub(crate) fn item_label(&self) -> String {
         match self {
             Self::Process { identity, .. } => identity.name.clone(),
@@ -579,10 +586,10 @@ impl GraphSlot {
         }
     }
 
-    pub(crate) fn graph_title_target_label(&self) -> &str {
+    pub(crate) fn graph_title_target_label(&self) -> Option<&str> {
         match self {
-            Self::Process { identity, .. } => &identity.name,
-            Self::System { .. } | Self::Gpu { .. } => "SYSTEM",
+            Self::Process { identity, .. } => Some(&identity.name),
+            Self::System { .. } | Self::Gpu { .. } => None,
         }
     }
 

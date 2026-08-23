@@ -1368,18 +1368,23 @@ fn graph_slot_title_line(
     } else {
         Style::default().fg(theme.muted)
     };
-    Line::from(vec![
+    let mut spans = vec![
         Span::styled(format!("Slot#{}", ordinal + 1), slot_style),
         Span::styled(" · ", Style::default().fg(theme.muted)),
-        Span::styled(slot.metric_label(), main_style),
-        Span::styled(" · ", Style::default().fg(theme.muted)),
-        Span::styled(slot.graph_title_target_label().to_string(), main_style),
+        Span::styled(slot.graph_title_metric_label(), main_style),
+    ];
+    if let Some(target) = slot.graph_title_target_label() {
+        spans.push(Span::styled(" · ", Style::default().fg(theme.muted)));
+        spans.push(Span::styled(target.to_string(), main_style));
+    }
+    spans.extend([
         Span::styled(" · B-A: ", comparison_style),
         Span::styled(
             format_graph_title_ab_delta(comparison, samples, metric),
             main_style,
         ),
-    ])
+    ]);
+    Line::from(spans)
 }
 
 fn metric_value(sample: &GraphSample, _metric: GraphValueFormat) -> Option<f64> {
@@ -2820,11 +2825,37 @@ mod tests {
     }
 
     #[test]
-    fn system_graph_slot_titles_use_system_as_the_target() {
+    fn system_graph_slot_titles_use_panel_qualified_metric_names() {
         for (metric, expected_metric) in [
-            (crate::model::SystemMetric::PhysicalMemory, "In use"),
-            (crate::model::SystemMetric::DiskRead, "Disk R"),
+            (crate::model::SystemMetric::PhysicalMemory, "MEM In use"),
+            (crate::model::SystemMetric::ModifiedMemory, "MEM Modified"),
+            (crate::model::SystemMetric::StandbyMemory, "MEM Standby"),
+            (
+                crate::model::SystemMetric::FreeZeroedMemory,
+                "MEM Free + Zeroed",
+            ),
+            (crate::model::SystemMetric::Committed, "MEM Commit charge"),
+            (crate::model::SystemMetric::PagedPool, "MEM Paged Pool"),
+            (
+                crate::model::SystemMetric::NonpagedPool,
+                "MEM Nonpaged Pool",
+            ),
+            (crate::model::SystemMetric::PagesInput, "MEM Pages In/s"),
+            (crate::model::SystemMetric::PagesOutput, "MEM Pages Out/s"),
             (crate::model::SystemMetric::CpuAverage, "CPU Usage"),
+            (crate::model::SystemMetric::ThreadCount, "CPU Threads"),
+            (crate::model::SystemMetric::ProcessCount, "CPU Processes"),
+            (
+                crate::model::SystemMetric::NetworkReceived,
+                "NW/DISK Net Rx",
+            ),
+            (crate::model::SystemMetric::NetworkSent, "NW/DISK Net Tx"),
+            (crate::model::SystemMetric::DiskRead, "NW/DISK Disk R"),
+            (crate::model::SystemMetric::DiskWrite, "NW/DISK Disk W"),
+            (
+                crate::model::SystemMetric::DiskQueueLength,
+                "NW/DISK Disk Q",
+            ),
         ] {
             let slot = GraphSlot::system(metric);
             let line = graph_slot_title_line(
@@ -2843,10 +2874,44 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("");
 
-            assert_eq!(
-                rendered,
-                format!("Slot#1 · {expected_metric} · SYSTEM · B-A: --")
+            assert_eq!(rendered, format!("Slot#1 · {expected_metric} · B-A: --"));
+            assert!(!rendered.contains("SYSTEM"));
+        }
+    }
+
+    #[test]
+    fn gpu_graph_slot_titles_use_compact_panel_qualified_metric_names() {
+        for (metric, expected_metric) in [
+            (crate::model::SystemMetric::GpuUtilization, "GPU Usage"),
+            (crate::model::SystemMetric::GpuEncode, "GPU Encode"),
+            (crate::model::SystemMetric::GpuDecode, "GPU Decode"),
+            (crate::model::SystemMetric::GpuDedicated, "GPU Dedicated"),
+            (crate::model::SystemMetric::GpuShared, "GPU Shared"),
+        ] {
+            let slot = GraphSlot::gpu(
+                crate::model::GpuAdapterId::default(),
+                "NVIDIA GeForce Test Adapter",
+                metric,
             );
+            let line = graph_slot_title_line(
+                &slot,
+                0,
+                &[],
+                slot.value_format(),
+                None,
+                true,
+                crate::ui::THEMES[0],
+            );
+            let rendered = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<Vec<_>>()
+                .join("");
+
+            assert_eq!(rendered, format!("Slot#1 · {expected_metric} · B-A: --"));
+            assert!(!rendered.contains("NVIDIA GeForce Test Adapter"));
+            assert!(!rendered.contains("SYSTEM"));
         }
     }
 

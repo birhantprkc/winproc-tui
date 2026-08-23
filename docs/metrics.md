@@ -306,7 +306,7 @@ When start time is available, it is included in the identity to avoid mixing his
 | Missing value | `--`. |
 
 `GB`, `MB`, `KB/s`, `Kbps`, and `Mbps` are rounded using a base of 1,000.
-Graph card titles append concise unit metadata such as `[B]`, `[count]`, `[Kbps/Mbps]`, `[Mbps]`, or `[MB/s]`. A unit already present in the metric name is not repeated, so `CPU%` and `GPU%` remain unchanged while `CPU Usage` is shown as `CPU Usage [%]`.
+Graph card titles keep process metric names compact and qualify system metrics with their source panel, such as `MEM In use`, `GPU Usage`, `CPU Threads`, and `NW/DISK Net Rx`. System and GPU cards omit the redundant `SYSTEM` target and do not include the full GPU adapter name. Units remain visible in metric-specific values and Y-axis ticks rather than as separate title metadata.
 Percent, throughput, and disk queue-length Y-axis ticks retain their metric-specific formats.
 The `B-A` value in each Graph card title uses the same metric-specific format as the A/B comparison. It is `--` unless both points are set and that Graph has values at both exact captured times.
 

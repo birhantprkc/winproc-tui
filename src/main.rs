@@ -7043,10 +7043,7 @@ processes = ["api.exe", "worker.exe"]
         assert!(value.modifier.contains(Modifier::BOLD));
         assert!(find_text_position_in_area(&buffer, area, "1  Modified").is_none());
         let rendered = buffer_to_text(&buffer);
-        assert!(
-            rendered.contains("Slot#1 · Modified · SYSTEM"),
-            "{rendered}"
-        );
+        assert!(rendered.contains("Slot#1 · MEM Modified"), "{rendered}");
     }
 
     #[test]
@@ -7319,7 +7316,7 @@ processes = ["api.exe", "worker.exe"]
         let rendered = buffer_to_text(&buffer);
         assert!(rendered.contains("Disk Q    91"), "{rendered}");
         assert!(!rendered.contains("1  Disk Q"), "{rendered}");
-        assert!(rendered.contains("Slot#1 · Disk Q · SYSTEM"), "{rendered}");
+        assert!(rendered.contains("Slot#1 · NW/DISK Disk Q"), "{rendered}");
 
         let (x, y) = find_text_position_in_area(&buffer, area, "91")
             .expect("registered NW/DISK value should render");
@@ -8354,10 +8351,7 @@ processes = ["api.exe", "worker.exe"]
         let rendered = buffer_to_text(&buffer);
         assert!(rendered.contains("Usage       42%"), "{rendered}");
         assert!(!rendered.contains("1  Usage"), "{rendered}");
-        assert!(
-            rendered.contains("Slot#1 · CPU Usage · SYSTEM"),
-            "{rendered}"
-        );
+        assert!(rendered.contains("Slot#1 · CPU Usage"), "{rendered}");
 
         let (x, y) = find_text_position_in_area(&buffer, area, "42%")
             .expect("registered CPU value should render");
