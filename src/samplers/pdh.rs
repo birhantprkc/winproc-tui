@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, mem::zeroed, ptr::null_mut};
+use std::{
+    collections::VecDeque,
+    mem::{align_of, size_of, zeroed},
+    ptr::null_mut,
+};
 
 use anyhow::Result;
 use winapi::{
@@ -13,6 +17,10 @@ use winapi::{
 use crate::platform::to_wide;
 
 const PDH_MORE_DATA_STATUS: u32 = 0x8000_07D2;
+const _: () = assert!(
+    align_of::<usize>() >= align_of::<PDH_FMT_COUNTERVALUE_ITEM_W>(),
+    "the Windows x64 word buffer must align PDH counter items"
+);
 
 pub(crate) fn map_process_counter_instances_to_pids<T: Copy>(
     process_ids: Vec<(String, u64)>,
@@ -48,6 +56,9 @@ pub(crate) fn map_process_counter_instances_to_pids<T: Copy>(
 }
 
 pub(crate) fn read_named_counter_items(counter: PDH_HCOUNTER) -> Option<Vec<(String, u64)>> {
+    // SAFETY: `counter` belongs to a live PDH query for every internal caller. The first call
+    // supplies only valid size/count outputs. The second call receives word-aligned storage with
+    // the byte capacity reported by PDH, and all typed/name views are bounds-checked below.
     unsafe {
         let mut buffer_size = 0u32;
         let mut item_count = 0u32;
@@ -62,7 +73,7 @@ pub(crate) fn read_named_counter_items(counter: PDH_HCOUNTER) -> Option<Vec<(Str
             return None;
         }
 
-        let mut buffer = vec![0u8; buffer_size as usize];
+        let mut buffer = aligned_word_buffer(buffer_size);
         let item_ptr = buffer.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
         if !pdh_ok(PdhGetFormattedCounterArrayW(
             counter,
@@ -74,7 +85,7 @@ pub(crate) fn read_named_counter_items(counter: PDH_HCOUNTER) -> Option<Vec<(Str
             return None;
         }
 
-        let items = std::slice::from_raw_parts(item_ptr, item_count as usize);
+        let items = formatted_counter_items(&buffer, buffer_size, item_count)?;
         let mut values = Vec::with_capacity(items.len());
         for item in items {
             if item.szName.is_null() {
@@ -91,8 +102,9 @@ pub(crate) fn read_named_counter_items(counter: PDH_HCOUNTER) -> Option<Vec<(Str
                 continue;
             }
 
-            let name = wide_ptr_to_string(item.szName);
-            values.push((name, value as u64));
+            if let Some(name) = wide_ptr_to_string(item.szName, &buffer, buffer_size) {
+                values.push((name, value as u64));
+            }
         }
 
         Some(values)
@@ -100,6 +112,9 @@ pub(crate) fn read_named_counter_items(counter: PDH_HCOUNTER) -> Option<Vec<(Str
 }
 
 pub(crate) fn read_named_counter_double_items(counter: PDH_HCOUNTER) -> Option<Vec<(String, f64)>> {
+    // SAFETY: `counter` belongs to a live PDH query for every internal caller. The first call
+    // supplies only valid size/count outputs. The second call receives word-aligned storage with
+    // the byte capacity reported by PDH, and all typed/name views are bounds-checked below.
     unsafe {
         let format = PDH_FMT_DOUBLE | PDH_FMT_NOCAP100;
         let mut buffer_size = 0u32;
@@ -115,7 +130,7 @@ pub(crate) fn read_named_counter_double_items(counter: PDH_HCOUNTER) -> Option<V
             return None;
         }
 
-        let mut buffer = vec![0u8; buffer_size as usize];
+        let mut buffer = aligned_word_buffer(buffer_size);
         let item_ptr = buffer.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
         if !pdh_ok(PdhGetFormattedCounterArrayW(
             counter,
@@ -127,7 +142,7 @@ pub(crate) fn read_named_counter_double_items(counter: PDH_HCOUNTER) -> Option<V
             return None;
         }
 
-        let items = std::slice::from_raw_parts(item_ptr, item_count as usize);
+        let items = formatted_counter_items(&buffer, buffer_size, item_count)?;
         let mut values = Vec::with_capacity(items.len());
         for item in items {
             if item.szName.is_null() {
@@ -144,8 +159,9 @@ pub(crate) fn read_named_counter_double_items(counter: PDH_HCOUNTER) -> Option<V
                 continue;
             }
 
-            let name = wide_ptr_to_string(item.szName);
-            values.push((name, value));
+            if let Some(name) = wide_ptr_to_string(item.szName, &buffer, buffer_size) {
+                values.push((name, value));
+            }
         }
 
         Some(values)
@@ -269,12 +285,51 @@ pub(crate) fn pdh_ok(status: i32) -> bool {
     status == ERROR_SUCCESS as i32
 }
 
-fn wide_ptr_to_string(ptr: *mut u16) -> String {
-    unsafe {
-        let mut len = 0usize;
-        while !ptr.is_null() && *ptr.add(len) != 0 {
-            len += 1;
-        }
-        String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+fn aligned_word_buffer(byte_len: u32) -> Vec<usize> {
+    vec![0usize; (byte_len as usize).div_ceil(size_of::<usize>())]
+}
+
+fn formatted_counter_items(
+    buffer: &[usize],
+    valid_bytes: u32,
+    item_count: u32,
+) -> Option<&[PDH_FMT_COUNTERVALUE_ITEM_W]> {
+    let valid_bytes = valid_bytes as usize;
+    let capacity_bytes = buffer.len().checked_mul(size_of::<usize>())?;
+    let item_bytes = (item_count as usize).checked_mul(size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>())?;
+    if valid_bytes > capacity_bytes || item_bytes > valid_bytes {
+        return None;
     }
+
+    // SAFETY: `buffer` is aligned at least as strictly as the PDH item type by the module-level
+    // assertion. The checked item byte range is inside the initialized buffer returned by a
+    // successful PDH call, and the buffer remains live and immutable for the slice lifetime.
+    Some(unsafe {
+        std::slice::from_raw_parts(
+            buffer.as_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>(),
+            item_count as usize,
+        )
+    })
+}
+
+fn wide_ptr_to_string(ptr: *mut u16, buffer: &[usize], valid_bytes: u32) -> Option<String> {
+    if ptr.is_null() {
+        return None;
+    }
+
+    let start = buffer.as_ptr() as usize;
+    let capacity_bytes = buffer.len().checked_mul(size_of::<usize>())?;
+    let valid_bytes = (valid_bytes as usize).min(capacity_bytes);
+    let end = start.checked_add(valid_bytes)?;
+    let address = ptr as usize;
+    if address < start || address >= end || !address.is_multiple_of(align_of::<u16>()) {
+        return None;
+    }
+
+    let max_units = (end - address) / size_of::<u16>();
+    // SAFETY: PDH returned `ptr` into the still-live output buffer. The address and alignment
+    // checks above establish a `u16` range contained in the bytes PDH reported as valid.
+    let units = unsafe { std::slice::from_raw_parts(ptr, max_units) };
+    let len = units.iter().position(|unit| *unit == 0)?;
+    Some(String::from_utf16_lossy(&units[..len]))
 }

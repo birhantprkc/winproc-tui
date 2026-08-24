@@ -1,4 +1,8 @@
-use std::{io, mem::size_of, ptr::null_mut};
+use std::{
+    io,
+    mem::{align_of, size_of, size_of_val},
+    ptr::null_mut,
+};
 
 use sysinfo::System;
 use winapi::{
@@ -18,6 +22,11 @@ use crate::{
     platform::{to_wide, wide_slice_to_string},
     ui::fmt_bytes,
 };
+
+const _: () = assert!(
+    align_of::<usize>() >= align_of::<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(),
+    "the Windows x64 word buffer must align processor information"
+);
 
 pub(crate) fn collect_cpu_summary(
     system: &System,
@@ -81,6 +90,9 @@ struct CpuTopologySample {
 }
 
 fn collect_cpu_topology() -> CpuTopologySample {
+    // SAFETY: the size probe supplies a valid output pointer and no data buffer. The second call
+    // receives word-aligned storage at least as large as the reported byte count. Parsing below
+    // validates each record and variable-length group-mask range before creating references.
     unsafe {
         let mut buffer_size = 0u32;
         let first_status =
@@ -92,13 +104,15 @@ fn collect_cpu_topology() -> CpuTopologySample {
             return CpuTopologySample::default();
         }
 
-        let mut buffer = vec![0u8; buffer_size as usize];
+        let mut buffer = vec![0usize; (buffer_size as usize).div_ceil(size_of::<usize>())];
+        let buffer_capacity = buffer.len().saturating_mul(size_of::<usize>());
         let status = GetLogicalProcessorInformationEx(
             RelationAll,
             buffer.as_mut_ptr() as *mut _,
             &mut buffer_size,
         );
-        if status == 0 {
+        let valid_bytes = buffer_size as usize;
+        if status == 0 || valid_bytes > buffer_capacity {
             return CpuTopologySample::default();
         }
 
@@ -108,21 +122,55 @@ fn collect_cpu_topology() -> CpuTopologySample {
         let mut smt_enabled = false;
         let mut offset = 0usize;
 
-        while offset + size_of::<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>() <= buffer.len() {
-            let info =
-                &*(buffer.as_ptr().add(offset) as *const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX);
-            if info.Size == 0 {
-                break;
+        while offset
+            .checked_add(size_of::<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>())
+            .is_some_and(|end| end <= valid_bytes)
+        {
+            let info_ptr = buffer
+                .as_ptr()
+                .cast::<u8>()
+                .add(offset)
+                .cast::<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>();
+            if !(info_ptr as usize)
+                .is_multiple_of(align_of::<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>())
+            {
+                return CpuTopologySample::default();
+            }
+            let info = &*info_ptr;
+            let record_size = info.Size as usize;
+            if record_size < size_of::<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>()
+                || offset
+                    .checked_add(record_size)
+                    .is_none_or(|end| end > valid_bytes)
+            {
+                return CpuTopologySample::default();
             }
 
             let relationship = info.Relationship;
             if relationship == RelationProcessorCore {
                 physical_cores = physical_cores.saturating_add(1);
                 let processor = info.u.Processor();
-                let group_masks = std::slice::from_raw_parts(
-                    processor.GroupMask.as_ptr(),
-                    processor.GroupCount as usize,
-                );
+                let group_count = processor.GroupCount as usize;
+                let group_masks_bytes =
+                    match group_count.checked_mul(size_of_val(&processor.GroupMask[0])) {
+                        Some(bytes) => bytes,
+                        None => return CpuTopologySample::default(),
+                    };
+                let record_start = info_ptr as usize;
+                let record_end = match record_start.checked_add(record_size) {
+                    Some(end) => end,
+                    None => return CpuTopologySample::default(),
+                };
+                let group_masks_start = processor.GroupMask.as_ptr() as usize;
+                let group_masks_end = match group_masks_start.checked_add(group_masks_bytes) {
+                    Some(end) => end,
+                    None => return CpuTopologySample::default(),
+                };
+                if group_masks_start < record_start || group_masks_end > record_end {
+                    return CpuTopologySample::default();
+                }
+                let group_masks =
+                    std::slice::from_raw_parts(processor.GroupMask.as_ptr(), group_count);
                 let efficiency_class = processor.EfficiencyClass;
                 let thread_count = group_masks
                     .iter()
@@ -170,7 +218,7 @@ fn collect_cpu_topology() -> CpuTopologySample {
                 }
             }
 
-            offset = offset.saturating_add(info.Size as usize);
+            offset += record_size;
         }
 
         sample.physical_cores = (physical_cores > 0).then_some(physical_cores);
