@@ -59,12 +59,45 @@ pub(crate) struct ProcessCounterSampler {
     dotnet_loh_counter: Option<PDH_HCOUNTER>,
 }
 
+struct PendingPdhQuery(PDH_HQUERY);
+
+impl PendingPdhQuery {
+    fn new(query: PDH_HQUERY) -> Self {
+        Self(query)
+    }
+
+    fn handle(&self) -> PDH_HQUERY {
+        self.0
+    }
+
+    fn into_raw(self) -> PDH_HQUERY {
+        let query = self.0;
+        std::mem::forget(self);
+        query
+    }
+}
+
+impl Drop for PendingPdhQuery {
+    fn drop(&mut self) {
+        // SAFETY: this guard is created only after `PdhOpenQueryW` succeeds and uniquely owns the
+        // query until `into_raw` transfers it to a completed sampler.
+        unsafe {
+            PdhCloseQuery(self.0);
+        }
+    }
+}
+
 impl SystemCounterSampler {
     pub(crate) fn new() -> Result<Self> {
         unsafe {
             let mut query: PDH_HQUERY = null_mut();
             let status = PdhOpenQueryW(null(), 0, &mut query);
             ensure_pdh_success(status, "opening system counter query")?;
+            if query.is_null() {
+                anyhow::bail!("opening system counter query returned a null handle");
+            }
+            let query = PendingPdhQuery::new(query);
+            let query_handle = query.handle();
 
             let mut available_counter: PDH_HCOUNTER = null_mut();
             let mut committed_counter: PDH_HCOUNTER = null_mut();
@@ -72,7 +105,7 @@ impl SystemCounterSampler {
 
             ensure_pdh_success(
                 PdhAddEnglishCounterW(
-                    query,
+                    query_handle,
                     to_wide("\\Memory\\Available Bytes").as_ptr(),
                     0,
                     &mut available_counter,
@@ -81,7 +114,7 @@ impl SystemCounterSampler {
             )?;
             ensure_pdh_success(
                 PdhAddEnglishCounterW(
-                    query,
+                    query_handle,
                     to_wide("\\Memory\\Committed Bytes").as_ptr(),
                     0,
                     &mut committed_counter,
@@ -90,7 +123,7 @@ impl SystemCounterSampler {
             )?;
             ensure_pdh_success(
                 PdhAddEnglishCounterW(
-                    query,
+                    query_handle,
                     to_wide("\\Memory\\Commit Limit").as_ptr(),
                     0,
                     &mut commit_limit_counter,
@@ -98,53 +131,69 @@ impl SystemCounterSampler {
                 "adding \\Memory\\Commit Limit",
             )?;
 
-            let cache_counter = add_optional_pdh_counter(query, "\\Memory\\Cache Bytes");
+            let cache_counter = add_optional_pdh_counter(query_handle, "\\Memory\\Cache Bytes");
             let modified_counter =
-                add_optional_pdh_counter(query, "\\Memory\\Modified Page List Bytes");
+                add_optional_pdh_counter(query_handle, "\\Memory\\Modified Page List Bytes");
             let standby_reserve_counter =
-                add_optional_pdh_counter(query, "\\Memory\\Standby Cache Reserve Bytes");
-            let standby_normal_counter =
-                add_optional_pdh_counter(query, "\\Memory\\Standby Cache Normal Priority Bytes");
+                add_optional_pdh_counter(query_handle, "\\Memory\\Standby Cache Reserve Bytes");
+            let standby_normal_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\Memory\\Standby Cache Normal Priority Bytes",
+            );
             let standby_core_counter =
-                add_optional_pdh_counter(query, "\\Memory\\Standby Cache Core Bytes");
+                add_optional_pdh_counter(query_handle, "\\Memory\\Standby Cache Core Bytes");
             let free_zeroed_counter =
-                add_optional_pdh_counter(query, "\\Memory\\Free & Zero Page List Bytes");
-            let pages_input_counter = add_optional_pdh_counter(query, "\\Memory\\Pages Input/sec");
+                add_optional_pdh_counter(query_handle, "\\Memory\\Free & Zero Page List Bytes");
+            let pages_input_counter =
+                add_optional_pdh_counter(query_handle, "\\Memory\\Pages Input/sec");
             let pages_output_counter =
-                add_optional_pdh_counter(query, "\\Memory\\Pages Output/sec");
-            let disk_read_counter =
-                add_optional_pdh_counter(query, "\\PhysicalDisk(_Total)\\Disk Read Bytes/sec");
-            let disk_write_counter =
-                add_optional_pdh_counter(query, "\\PhysicalDisk(_Total)\\Disk Write Bytes/sec");
+                add_optional_pdh_counter(query_handle, "\\Memory\\Pages Output/sec");
+            let disk_read_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\PhysicalDisk(_Total)\\Disk Read Bytes/sec",
+            );
+            let disk_write_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\PhysicalDisk(_Total)\\Disk Write Bytes/sec",
+            );
             let disk_queue_length_counter = add_optional_pdh_counter(
-                query,
+                query_handle,
                 "\\PhysicalDisk(_Total)\\Current Disk Queue Length",
             );
-            let network_received_counter =
-                add_optional_pdh_counter(query, "\\Network Interface(*)\\Bytes Received/sec");
+            let network_received_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\Network Interface(*)\\Bytes Received/sec",
+            );
             let network_sent_counter =
-                add_optional_pdh_counter(query, "\\Network Interface(*)\\Bytes Sent/sec");
-            let cpu_frequency_counter =
-                add_optional_pdh_counter(query, "\\Processor Information(*)\\Processor Frequency");
+                add_optional_pdh_counter(query_handle, "\\Network Interface(*)\\Bytes Sent/sec");
+            let cpu_frequency_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\Processor Information(*)\\Processor Frequency",
+            );
             let cpu_performance_counter = add_optional_pdh_counter(
-                query,
+                query_handle,
                 "\\Processor Information(*)\\% Processor Performance",
             );
             let cpu_total_usage_counter = add_optional_pdh_counter(
-                query,
+                query_handle,
                 "\\Processor Information(_Total)\\% Processor Time",
             );
-            let cpu_user_usage_counter =
-                add_optional_pdh_counter(query, "\\Processor Information(_Total)\\% User Time");
+            let cpu_user_usage_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\Processor Information(_Total)\\% User Time",
+            );
             let cpu_kernel_usage_counter = add_optional_pdh_counter(
-                query,
+                query_handle,
                 "\\Processor Information(_Total)\\% Privileged Time",
             );
 
-            ensure_pdh_success(PdhCollectQueryData(query), "priming system counter query")?;
+            ensure_pdh_success(
+                PdhCollectQueryData(query_handle),
+                "priming system counter query",
+            )?;
 
             Ok(Self {
-                query,
+                query: query.into_raw(),
                 available_counter,
                 committed_counter,
                 commit_limit_counter,
@@ -294,11 +343,16 @@ impl ProcessCounterSampler {
                 PdhOpenQueryW(null(), 0, &mut query),
                 "opening process query",
             )?;
+            if query.is_null() {
+                anyhow::bail!("opening process query returned a null handle");
+            }
+            let query = PendingPdhQuery::new(query);
+            let query_handle = query.handle();
 
             let mut process_id_counter: PDH_HCOUNTER = null_mut();
             ensure_pdh_success(
                 PdhAddEnglishCounterW(
-                    query,
+                    query_handle,
                     to_wide("\\Process(*)\\ID Process").as_ptr(),
                     0,
                     &mut process_id_counter,
@@ -306,30 +360,37 @@ impl ProcessCounterSampler {
                 "adding \\Process(*)\\ID Process",
             )?;
 
-            let cpu_counter = add_optional_pdh_counter(query, "\\Process(*)\\% Processor Time");
-            let private_counter = add_optional_pdh_counter(query, "\\Process(*)\\Private Bytes");
-            let working_set_counter = add_optional_pdh_counter(query, "\\Process(*)\\Working Set");
+            let cpu_counter =
+                add_optional_pdh_counter(query_handle, "\\Process(*)\\% Processor Time");
+            let private_counter =
+                add_optional_pdh_counter(query_handle, "\\Process(*)\\Private Bytes");
+            let working_set_counter =
+                add_optional_pdh_counter(query_handle, "\\Process(*)\\Working Set");
             let working_set_private_counter =
-                add_optional_pdh_counter(query, "\\Process(*)\\Working Set - Private");
+                add_optional_pdh_counter(query_handle, "\\Process(*)\\Working Set - Private");
             let io_read_counter =
-                add_optional_pdh_counter(query, "\\Process(*)\\IO Read Bytes/sec");
+                add_optional_pdh_counter(query_handle, "\\Process(*)\\IO Read Bytes/sec");
             let io_write_counter =
-                add_optional_pdh_counter(query, "\\Process(*)\\IO Write Bytes/sec");
+                add_optional_pdh_counter(query_handle, "\\Process(*)\\IO Write Bytes/sec");
             let dotnet_process_id_counter =
-                add_optional_pdh_counter(query, "\\.NET CLR Memory(*)\\Process ID");
-            let dotnet_heap_counter =
-                add_optional_pdh_counter(query, "\\.NET CLR Memory(*)\\# Bytes in all Heaps");
+                add_optional_pdh_counter(query_handle, "\\.NET CLR Memory(*)\\Process ID");
+            let dotnet_heap_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\.NET CLR Memory(*)\\# Bytes in all Heaps",
+            );
             let dotnet_gen1_heap_counter =
-                add_optional_pdh_counter(query, "\\.NET CLR Memory(*)\\Gen 1 heap size");
+                add_optional_pdh_counter(query_handle, "\\.NET CLR Memory(*)\\Gen 1 heap size");
             let dotnet_gen2_heap_counter =
-                add_optional_pdh_counter(query, "\\.NET CLR Memory(*)\\Gen 2 heap size");
-            let dotnet_loh_counter =
-                add_optional_pdh_counter(query, "\\.NET CLR Memory(*)\\Large Object Heap size");
+                add_optional_pdh_counter(query_handle, "\\.NET CLR Memory(*)\\Gen 2 heap size");
+            let dotnet_loh_counter = add_optional_pdh_counter(
+                query_handle,
+                "\\.NET CLR Memory(*)\\Large Object Heap size",
+            );
 
-            ensure_pdh_success(PdhCollectQueryData(query), "priming process query")?;
+            ensure_pdh_success(PdhCollectQueryData(query_handle), "priming process query")?;
 
             Ok(Self {
-                query,
+                query: query.into_raw(),
                 process_id_counter,
                 cpu_counter,
                 private_counter,
