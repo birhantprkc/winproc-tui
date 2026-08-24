@@ -169,6 +169,9 @@ pub(crate) fn read_named_counter_double_items(counter: PDH_HCOUNTER) -> Option<V
 }
 
 pub(crate) fn read_pdh_large_value(counter: PDH_HCOUNTER) -> Result<u64> {
+    // SAFETY: callers pass a counter owned by a live PDH query. Both output pointers refer to
+    // initialized local storage, and the union member is read only after a successful large-value
+    // request and a valid counter status.
     unsafe {
         let mut counter_type = 0u32;
         let mut value: PDH_FMT_COUNTERVALUE = zeroed();
@@ -190,6 +193,9 @@ pub(crate) fn read_pdh_large_value(counter: PDH_HCOUNTER) -> Result<u64> {
 }
 
 pub(crate) fn read_pdh_double_value(counter: PDH_HCOUNTER) -> Result<f64> {
+    // SAFETY: callers pass a counter owned by a live PDH query. Both output pointers refer to
+    // initialized local storage, and the union member is read only after a successful double-value
+    // request and a valid counter status.
     unsafe {
         let mut counter_type = 0u32;
         let mut value: PDH_FMT_COUNTERVALUE = zeroed();
@@ -238,6 +244,8 @@ pub(crate) fn add_optional_pdh_counter(
     query: PDH_HQUERY,
     counter_path: &str,
 ) -> Option<PDH_HCOUNTER> {
+    // SAFETY: callers supply a live query, `wide_path` remains live and NUL-terminated through the
+    // synchronous add call, and `counter` is a valid output pointer consumed only on success.
     unsafe {
         let mut counter: PDH_HCOUNTER = null_mut();
         let wide_path = to_wide(counter_path);

@@ -89,6 +89,9 @@ impl Drop for PendingPdhQuery {
 
 impl SystemCounterSampler {
     pub(crate) fn new() -> Result<Self> {
+        // SAFETY: every PDH output pointer targets initialized local storage, each UTF-16 path
+        // remains live for its synchronous add call, and `PendingPdhQuery` owns the validated
+        // non-null query until all required counters and the priming sample succeed.
         unsafe {
             let mut query: PDH_HQUERY = null_mut();
             let status = PdhOpenQueryW(null(), 0, &mut query);
@@ -220,6 +223,8 @@ impl SystemCounterSampler {
     }
 
     pub(crate) fn sample(&mut self) -> Result<crate::model::SystemCounterSample> {
+        // SAFETY: a constructed sampler uniquely owns a live PDH query and all stored counters
+        // belong to that query; they remain valid until the sampler's `Drop` closes the query.
         unsafe {
             ensure_pdh_success(
                 PdhCollectQueryData(self.query),
@@ -329,6 +334,8 @@ fn processor_information_instance_index(name: &str) -> Option<usize> {
 
 impl Drop for SystemCounterSampler {
     fn drop(&mut self) {
+        // SAFETY: construction transfers one validated query from `PendingPdhQuery` into this
+        // sampler, which never exposes or separately closes it.
         unsafe {
             PdhCloseQuery(self.query);
         }
@@ -337,6 +344,9 @@ impl Drop for SystemCounterSampler {
 
 impl ProcessCounterSampler {
     pub(crate) fn new() -> Result<Self> {
+        // SAFETY: every PDH output pointer targets initialized local storage, each UTF-16 path
+        // remains live for its synchronous add call, and `PendingPdhQuery` owns the validated
+        // non-null query until required initialization succeeds.
         unsafe {
             let mut query: PDH_HQUERY = null_mut();
             ensure_pdh_success(
@@ -411,6 +421,8 @@ impl ProcessCounterSampler {
         &mut self,
         logical_processor_count: usize,
     ) -> std::collections::HashMap<u32, ProcessExtraMetrics> {
+        // SAFETY: a constructed sampler uniquely owns a live PDH query and the process-ID
+        // counter belongs to it; both remain valid for this synchronous collection call.
         unsafe {
             if !pdh_ok(PdhCollectQueryData(self.query)) {
                 return std::collections::HashMap::new();
@@ -548,6 +560,8 @@ fn derive_workset_shareable_bytes(
 
 impl Drop for ProcessCounterSampler {
     fn drop(&mut self) {
+        // SAFETY: construction transfers one validated query from `PendingPdhQuery` into this
+        // sampler, which never exposes or separately closes it.
         unsafe {
             PdhCloseQuery(self.query);
         }

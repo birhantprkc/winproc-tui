@@ -5,6 +5,7 @@ use winapi::um::fileapi::{GetDiskFreeSpaceExW, GetLogicalDrives};
 use crate::{model::DiskUsageSample, platform::to_wide};
 
 pub(crate) fn collect_disk_usages() -> Vec<DiskUsageSample> {
+    // SAFETY: this Win32 call takes no pointers and returns a drive-bit mask by value.
     let mask = unsafe { GetLogicalDrives() };
     if mask == 0 {
         return Vec::new();
@@ -22,6 +23,9 @@ pub(crate) fn collect_disk_usages() -> Vec<DiskUsageSample> {
         let mut free_bytes = 0u64;
         let mut total_bytes = 0u64;
 
+        // SAFETY: `wide_path` is live and NUL-terminated, the optional caller-available output is
+        // intentionally null, and both supplied `u64` outputs have the layout and alignment of
+        // Windows `ULARGE_INTEGER` on the supported Windows x64 target.
         let status = unsafe {
             GetDiskFreeSpaceExW(
                 wide_path.as_ptr(),

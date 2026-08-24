@@ -44,6 +44,9 @@ pub(crate) struct GpuSampler {
 
 impl GpuSampler {
     pub(crate) fn new() -> anyhow::Result<Self> {
+        // SAFETY: PDH output pointers target initialized local storage, temporary UTF-16 paths
+        // stay live for their synchronous calls, and a successful query is either transferred to
+        // the sampler or closed on every later initialization failure.
         unsafe {
             let mut query: PDH_HQUERY = null_mut();
             ensure_pdh_success(PdhOpenQueryW(null(), 0, &mut query), "opening GPU query")?;
@@ -95,6 +98,8 @@ impl GpuSampler {
                 self.adapters = refreshed;
             }
         }
+        // SAFETY: a constructed sampler owns a live query and its counters until `Drop`; this call
+        // only updates PDH-owned sample state synchronously.
         unsafe {
             if !pdh_ok(PdhCollectQueryData(self.query)) {
                 return Some(GpuSample {
@@ -132,6 +137,8 @@ fn same_adapter_configuration(left: &[GpuAdapterSample], right: &[GpuAdapterSamp
 
 impl Drop for GpuSampler {
     fn drop(&mut self) {
+        // SAFETY: successful construction transfers the query to this sole owner, which does not
+        // otherwise close or expose it.
         unsafe {
             PdhCloseQuery(self.query);
         }
@@ -332,6 +339,9 @@ fn parse_pid_from_gpu_instance(instance_name: &str) -> Option<u32> {
 }
 
 fn collect_gpu_adapters() -> Vec<GpuAdapterSample> {
+    // SAFETY: COM output pointers target initialized locals and are checked for successful,
+    // non-null results before dereference. Each acquired adapter is released once after its
+    // description call, and the factory remains live through enumeration and is then released.
     unsafe {
         let mut factory: *mut IDXGIFactory1 = null_mut();
         let status = CreateDXGIFactory1(

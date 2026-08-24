@@ -41,6 +41,8 @@ pub(crate) struct SingleInstanceGuard {
 
 impl Drop for SingleInstanceGuard {
     fn drop(&mut self) {
+        // SAFETY: the guard is created only for a non-null mutex handle returned by
+        // `CreateMutexW` and is its sole owner, so this closes the handle exactly once.
         unsafe {
             CloseHandle(self.handle);
         }
@@ -53,15 +55,23 @@ pub(crate) fn acquire_single_instance() -> std::io::Result<Option<SingleInstance
 
 fn acquire_named_mutex(name: &str) -> std::io::Result<Option<SingleInstanceGuard>> {
     let name = to_wide(name);
+    // SAFETY: this clears the calling thread's last-error slot immediately before the mutex call
+    // so `ERROR_ALREADY_EXISTS` can be distinguished from a newly created mutex.
     unsafe {
         SetLastError(0);
     }
+    // SAFETY: `name` is a live NUL-terminated UTF-16 buffer, the security-attributes pointer is
+    // intentionally null, and the returned handle is checked before it is wrapped or closed.
     let handle = unsafe { CreateMutexW(ptr::null_mut(), FALSE, name.as_ptr()) };
     if handle.is_null() {
         return Err(std::io::Error::last_os_error());
     }
 
+    // SAFETY: this reads the calling thread's last-error slot immediately after `CreateMutexW`,
+    // with no intervening Win32 call that could overwrite it.
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        // SAFETY: `handle` was validated above and has not been transferred; the duplicate case
+        // does not construct a guard, so this is its only close.
         unsafe {
             CloseHandle(handle);
         }
@@ -72,6 +82,8 @@ fn acquire_named_mutex(name: &str) -> std::io::Result<Option<SingleInstanceGuard
 }
 
 pub(crate) fn install_console_control_handler() -> std::io::Result<()> {
+    // SAFETY: the callback uses the documented system ABI, has static lifetime, and touches only
+    // thread-safe atomics plus bounded sleeping when Windows invokes it on a control thread.
     let ok = unsafe { SetConsoleCtrlHandler(Some(console_control_handler), TRUE) };
     if ok == 0 {
         Err(std::io::Error::last_os_error())
@@ -88,6 +100,8 @@ pub(crate) fn mark_shutdown_complete() {
     SHUTDOWN_COMPLETE.store(true, Ordering::SeqCst);
 }
 
+// SAFETY contract: Windows supplies a `DWORD` control code and may invoke this system-ABI
+// callback concurrently. It must not access borrowed state; it uses only process-lifetime atomics.
 unsafe extern "system" fn console_control_handler(control_type: DWORD) -> BOOL {
     match control_type {
         CTRL_C_EVENT | CTRL_BREAK_EVENT => {
@@ -142,6 +156,8 @@ pub(crate) fn send_terminal_zoom_shortcut(zoom_in: bool) -> std::io::Result<()> 
         ]
     };
 
+    // SAFETY: `inputs` is a live contiguous array of initialized `INPUT` values, its count fits
+    // `u32`, and the element size exactly matches the Windows `INPUT` definition.
     let sent = unsafe {
         SendInput(
             inputs.len() as u32,
@@ -157,12 +173,17 @@ pub(crate) fn send_terminal_zoom_shortcut(zoom_in: bool) -> std::io::Result<()> 
 }
 
 fn control_key_is_down() -> bool {
+    // SAFETY: `VK_CONTROL` is a valid virtual-key code and the call has no pointer arguments.
     unsafe { GetAsyncKeyState(VK_CONTROL) < 0 }
 }
 
 fn keyboard_input(vk: WORD, flags: u32) -> INPUT {
+    // SAFETY: all-zero is a valid initial representation for the C `INPUT` union; its active
+    // variant is selected below by setting `type_` before the value is returned to Windows.
     let mut input = unsafe { std::mem::zeroed::<INPUT>() };
     input.type_ = INPUT_KEYBOARD;
+    // SAFETY: `type_ == INPUT_KEYBOARD` selects the keyboard union member, and the assigned
+    // `KEYBDINPUT` value is fully initialized.
     unsafe {
         *input.u.ki_mut() = KEYBDINPUT {
             wVk: vk,

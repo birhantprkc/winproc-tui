@@ -86,6 +86,8 @@ pub(crate) fn map_memory_counters(
 }
 
 pub(crate) fn collect_performance_info() -> PerformanceSample {
+    // SAFETY: zero initialization is valid for this C output structure, `cb` is set to its exact
+    // size, and the structure remains live and exclusively borrowed for the synchronous call.
     unsafe {
         let mut info: PERFORMANCE_INFORMATION = zeroed();
         info.cb = size_of::<PERFORMANCE_INFORMATION>() as u32;

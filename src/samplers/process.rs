@@ -33,6 +33,8 @@ use crate::{
 const GR_GDIOBJECTS: DWORD = 0;
 const GR_USEROBJECTS: DWORD = 1;
 
+// SAFETY contract: this declaration matches the documented User32 system ABI and parameter types;
+// call sites pass a live process handle and one of the two supported resource selector constants.
 unsafe extern "system" {
     fn GetGuiResources(hProcess: HANDLE, uiFlags: DWORD) -> DWORD;
 }
@@ -86,6 +88,8 @@ fn merge_cached_slow_process_extras(
 }
 
 fn merge_process_threads(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
+    // SAFETY: a successful snapshot is kept live through enumeration, `entry` is a fully sized
+    // output structure with `dwSize` initialized as required, and the snapshot is closed once.
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snapshot == INVALID_HANDLE_VALUE {
@@ -130,6 +134,8 @@ fn merge_handle_counts(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
             continue;
         };
 
+        // SAFETY: a non-null process handle remains live while Windows writes to the valid local
+        // count output and is closed exactly once after the query.
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if handle.is_null() {
@@ -148,6 +154,8 @@ fn merge_handle_counts(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
 
 fn merge_gui_resource_counts(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
     for (pid, metric) in extras.iter_mut() {
+        // SAFETY: a non-null process handle remains live for both documented User32 queries and is
+        // closed exactly once afterward; the selector constants match the declaration contract.
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, *pid);
             if handle.is_null() {
@@ -163,6 +171,9 @@ fn merge_gui_resource_counts(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
 }
 
 fn collect_process_handle_counts() -> Option<HashMap<u32, u64>> {
+    // SAFETY: all PDH output pointers target initialized local storage, temporary UTF-16 counter
+    // paths remain live for their synchronous add calls, and every successfully opened query is
+    // closed after the closure finishes, including early `None` returns inside it.
     unsafe {
         let mut query: PDH_HQUERY = null_mut();
         if !pdh_ok(PdhOpenQueryW(null(), 0, &mut query)) {

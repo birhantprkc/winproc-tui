@@ -340,6 +340,9 @@ fn collect_cpu_frequency_mhz() -> Option<u64> {
 }
 
 fn read_registry_string(sub_key: &str, value_name: &str) -> Option<String> {
+    // SAFETY: both registry names are live NUL-terminated UTF-16 buffers. The first call probes a
+    // byte size; the second receives a UTF-16 allocation large enough for that size and a live size
+    // pointer, and the result is consumed only on success.
     unsafe {
         let sub_key_wide = to_wide(sub_key);
         let value_name_wide = to_wide(value_name);
@@ -376,6 +379,8 @@ fn read_registry_string(sub_key: &str, value_name: &str) -> Option<String> {
 }
 
 fn read_registry_dword(sub_key: &str, value_name: &str) -> Option<u32> {
+    // SAFETY: both registry names are live NUL-terminated UTF-16 buffers, and the data and size
+    // pointers describe exactly one initialized `u32`; the value is returned only on success.
     unsafe {
         let sub_key_wide = to_wide(sub_key);
         let value_name_wide = to_wide(value_name);
