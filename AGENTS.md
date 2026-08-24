@@ -205,4 +205,13 @@ cargo build
 cargo run --release
 ```
 
+Reproduce the dependency audit workflow with the pinned audit tool and the committed `Cargo.lock`:
+
+```powershell
+cargo install cargo-audit --version 0.22.2 --locked
+cargo audit
+```
+
+The regular dependency workflow runs when `Cargo.toml`, `Cargo.lock`, or the workflow changes, on a weekly schedule, and on manual dispatch. It fails on known vulnerabilities without making every advisory warning a merge blocker. Release-candidate verification uses the stricter `cargo audit --deny warnings` gate before packaging.
+
 Use focused tests or `cargo test <name>` when appropriate.

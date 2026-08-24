@@ -1,0 +1,42 @@
+name: Dependency audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 1"
+  pull_request:
+    paths:
+      - ".github/workflows/dependency-audit.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/dependency-audit.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit locked dependencies
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust 1.95.0
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+
+      - name: Install cargo-audit 0.22.2
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Reject known vulnerabilities
+        run: cargo audit
