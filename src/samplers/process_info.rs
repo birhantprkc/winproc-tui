@@ -361,6 +361,8 @@ fn format_command_line(parts: &[OsString]) -> String {
 }
 
 fn process_arch(pid: u32) -> InfoValue {
+    // SAFETY: a non-null process handle remains live while Windows writes to the initialized
+    // `wow64` output and is closed exactly once before this function returns.
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if handle.is_null() {

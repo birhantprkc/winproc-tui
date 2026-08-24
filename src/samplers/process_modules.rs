@@ -216,6 +216,9 @@ fn enumerate_module_paths(
 ) -> std::result::Result<Vec<String>, ProcessModulesError> {
     let snapshot =
         retry_bad_length(|| create_module_snapshot(pid, flags)).map_err(module_error_from_win32)?;
+    // SAFETY: `snapshot` owns a valid live Toolhelp handle, `entry` is an exactly sized output
+    // structure with the required `dwSize`, and each last-error read occurs immediately after the
+    // enumeration call that failed on the same thread.
     unsafe {
         let mut entry: MODULEENTRY32W = zeroed();
         entry.dwSize = size_of::<MODULEENTRY32W>() as u32;
@@ -247,8 +250,12 @@ fn enumerate_module_paths(
 }
 
 fn create_module_snapshot(pid: u32, flags: u32) -> std::result::Result<OwnedHandle, u32> {
+    // SAFETY: `flags` is composed only from Toolhelp module-snapshot constants and the call has no
+    // caller-provided pointer; its returned sentinel is checked before ownership is constructed.
     let snapshot = unsafe { CreateToolhelp32Snapshot(flags, pid) };
     if snapshot == INVALID_HANDLE_VALUE {
+        // SAFETY: this reads the calling thread's last-error value immediately after the failed
+        // snapshot call, with no intervening Win32 operation.
         Err(unsafe { GetLastError() })
     } else {
         Ok(OwnedHandle(snapshot))
@@ -348,6 +355,8 @@ struct OwnedHandle(HANDLE);
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
+        // SAFETY: this wrapper is constructed only for a valid snapshot handle and uniquely owns
+        // it until this single close.
         unsafe {
             CloseHandle(self.0);
         }

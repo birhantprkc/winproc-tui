@@ -34,6 +34,9 @@ const INITIAL_HANDLE_BUFFER_BYTES: usize = 1024 * 1024;
 const MAX_HANDLE_BUFFER_BYTES: usize = 256 * 1024 * 1024;
 
 #[link(name = "ntdll")]
+// SAFETY contract: this declaration matches the documented NT system ABI and the x64 signature
+// used by `SystemExtendedHandleInformation`; call sites provide a writable byte buffer and a live
+// return-length output, with all returned data parsed through explicit length checks.
 unsafe extern "system" {
     fn NtQuerySystemInformation(
         system_information_class: ULONG,
@@ -247,6 +250,8 @@ pub(crate) fn collect_open_files_for_process(process: &ProcessRow) -> OpenFilesR
     };
     let total_handles = handle_entries.len();
 
+    // SAFETY: no pointers are passed; the returned process handle is checked for null before it is
+    // placed in a unique owner and used only for handle duplication.
     let process_handle = unsafe { OpenProcess(PROCESS_DUP_HANDLE, FALSE, process.pid) };
     if process_handle.is_null() {
         return OpenFilesReport {
@@ -270,6 +275,8 @@ pub(crate) fn collect_open_files_for_process(process: &ProcessRow) -> OpenFilesR
     for entry in handle_entries {
         match duplicate_process_handle(source_process.0, entry.handle_value) {
             Some(handle) => {
+                // SAFETY: `handle` uniquely owns a live duplicated handle for the duration of this
+                // call; `GetFileType` accepts any valid kernel handle and has no pointer outputs.
                 let file_type = unsafe { GetFileType(handle.0) };
                 if file_type != FILE_TYPE_DISK {
                     continue;
@@ -320,6 +327,9 @@ fn query_system_handles_for_pid(pid: u32) -> Result<Vec<HandleEntry>> {
     loop {
         let mut buffer = vec![0u8; buffer_len];
         let mut return_len: ULONG = 0;
+        // SAFETY: `buffer_len` never exceeds the configured 256 MiB limit and therefore fits
+        // `ULONG`; the byte allocation and return-length output remain live and writable for the
+        // call. Returned records are consumed only after the status and lengths are checked.
         let status = unsafe {
             NtQuerySystemInformation(
                 SYSTEM_EXTENDED_HANDLE_INFORMATION,
@@ -362,6 +372,8 @@ fn parse_handle_buffer(buffer: &[u8], pid: u32) -> Result<Vec<HandleEntry>> {
         return Err(anyhow!("short handle table header"));
     }
 
+    // SAFETY: the header-length check above proves that one possibly unaligned `usize` is fully
+    // contained in the initialized byte slice.
     let handle_count = unsafe { read_unaligned(buffer.as_ptr() as *const usize) };
     let entry_offset = pointer_size * 2;
     let entry_size = size_of::<SystemHandleTableEntryInfoEx>();
@@ -374,6 +386,8 @@ fn parse_handle_buffer(buffer: &[u8], pid: u32) -> Result<Vec<HandleEntry>> {
     let mut entries = Vec::new();
     for index in 0..handle_count {
         let offset = entry_offset + index * entry_size;
+        // SAFETY: `required_len <= buffer.len()` proves every indexed, possibly unaligned entry is
+        // fully contained in the initialized byte slice.
         let entry = unsafe {
             read_unaligned(buffer.as_ptr().add(offset) as *const SystemHandleTableEntryInfoEx)
         };
@@ -388,6 +402,9 @@ fn parse_handle_buffer(buffer: &[u8], pid: u32) -> Result<Vec<HandleEntry>> {
 
 fn duplicate_process_handle(source_process: HANDLE, handle_value: usize) -> Option<OwnedHandle> {
     let mut duplicated: HANDLE = null_mut();
+    // SAFETY: `source_process` is a live process handle with duplication access, the remote handle
+    // value is passed opaquely for Windows to validate, the target is the current-process pseudo
+    // handle, and `duplicated` is a live output checked before ownership is constructed.
     let ok = unsafe {
         DuplicateHandle(
             source_process,
@@ -408,6 +425,8 @@ fn duplicate_process_handle(source_process: HANDLE, handle_value: usize) -> Opti
 
 fn final_path_for_handle(handle: HANDLE) -> Option<String> {
     let mut buffer = vec![0u16; 32_768];
+    // SAFETY: `handle` is live, and `buffer` is a writable UTF-16 allocation whose length fits
+    // `DWORD`; the returned length is checked before slicing.
     let len =
         unsafe { GetFinalPathNameByHandleW(handle, buffer.as_mut_ptr(), buffer.len() as DWORD, 0) };
     if len == 0 {
@@ -416,6 +435,8 @@ fn final_path_for_handle(handle: HANDLE) -> Option<String> {
     let len = len as usize;
     if len >= buffer.len() {
         buffer.resize(len + 1, 0);
+        // SAFETY: the resized UTF-16 allocation is live and writable and its checked capacity is
+        // passed to Windows; the second returned length is validated before slicing.
         let len = unsafe {
             GetFinalPathNameByHandleW(handle, buffer.as_mut_ptr(), buffer.len() as DWORD, 0)
         };
@@ -453,6 +474,8 @@ struct OwnedHandle(HANDLE);
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
+        // SAFETY: this wrapper is constructed only for a checked non-null process or duplicated
+        // handle and uniquely owns it until this single close.
         unsafe {
             CloseHandle(self.0);
         }

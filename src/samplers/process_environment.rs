@@ -43,6 +43,9 @@ const PEB32_PROCESS_PARAMETERS_OFFSET: usize = 0x10;
 const PROCESS_PARAMETERS64_ENVIRONMENT_OFFSET: usize = 0x80;
 const PROCESS_PARAMETERS32_ENVIRONMENT_OFFSET: usize = 0x48;
 
+// SAFETY contract: this function-pointer type matches the ntdll system ABI and documented
+// `NtQueryInformationProcess` parameter widths on Windows x64. Calls must provide a live process
+// handle and a writable output buffer whose byte length matches the requested information class.
 type NtQueryInformationProcessFn = unsafe extern "system" fn(
     process_handle: HANDLE,
     process_information_class: ULONG,
@@ -228,6 +231,8 @@ fn verify_process_identity(
 }
 
 fn open_process(pid: u32) -> std::result::Result<OwnedHandle, ProcessEnvironmentError> {
+    // SAFETY: this call passes no pointers; its returned handle is checked for null before being
+    // transferred to the unique `OwnedHandle` wrapper.
     let handle = unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
@@ -236,6 +241,8 @@ fn open_process(pid: u32) -> std::result::Result<OwnedHandle, ProcessEnvironment
         )
     };
     if handle.is_null() {
+        // SAFETY: this reads the calling thread's last-error value immediately after the failed
+        // `OpenProcess` call, with no intervening Win32 operation.
         let error = unsafe { GetLastError() };
         Err(match error {
             ERROR_ACCESS_DENIED => ProcessEnvironmentError::AccessDenied,
@@ -255,6 +262,8 @@ enum RemoteLayout {
 
 fn remote_layout(handle: HANDLE) -> std::result::Result<RemoteLayout, ProcessEnvironmentError> {
     let mut wow64 = 0;
+    // SAFETY: `handle` is owned and live for this call, and `wow64` is a valid initialized output
+    // location whose value is consumed only when the call succeeds.
     if unsafe { IsWow64Process(handle, &mut wow64) } == 0 {
         return Err(ProcessEnvironmentError::UnsupportedArchitecture);
     }
@@ -279,6 +288,9 @@ fn query_peb_address(
     layout: RemoteLayout,
 ) -> std::result::Result<usize, ProcessEnvironmentError> {
     let query_information = resolve_nt_query_information_process()?;
+    // SAFETY: the resolved function matches `NtQueryInformationProcessFn`, `handle` is live, and
+    // each information class is paired with an initialized writable output of its exact byte
+    // size. Result pointers/addresses are consumed only after successful status and null checks.
     unsafe {
         match layout {
             RemoteLayout::X64 => {
@@ -329,14 +341,20 @@ fn resolve_nt_query_information_process()
         b'l' as u16,
         0,
     ];
+    // SAFETY: `NTDLL` is a process-lifetime NUL-terminated module name. The returned module is a
+    // borrowed handle to an already loaded system DLL and is checked before use.
     let module = unsafe { GetModuleHandleW(NTDLL.as_ptr()) };
     if module.is_null() {
         return Err(ProcessEnvironmentError::NotAvailable);
     }
+    // SAFETY: `module` is a checked live ntdll module handle and the symbol name is a static
+    // NUL-terminated C string.
     let address = unsafe { GetProcAddress(module, c"NtQueryInformationProcess".as_ptr()) };
     if address.is_null() {
         return Err(ProcessEnvironmentError::NotAvailable);
     }
+    // SAFETY: the non-null address is the named ntdll export, whose system ABI and signature match
+    // `NtQueryInformationProcessFn`; `FARPROC` and that function pointer have the same width.
     Ok(unsafe { transmute::<FARPROC, NtQueryInformationProcessFn>(address) })
 }
 
@@ -358,6 +376,9 @@ impl RemoteMemory for ProcessMemory {
     ) -> std::result::Result<Vec<u8>, ProcessEnvironmentError> {
         let mut bytes = vec![0u8; length];
         let mut read = 0usize;
+        // SAFETY: `self.0` is a live process handle, the remote address is passed opaquely for
+        // Windows to validate, and the local byte allocation and read-count output remain live and
+        // writable. The result is accepted only when the requested byte count was read exactly.
         let ok = unsafe {
             ReadProcessMemory(
                 self.0,
@@ -440,7 +461,11 @@ fn read_environment_block(
     let mut bytes = Vec::new();
     let mut current = environment;
     while bytes.len() < MAX_ENVIRONMENT_BYTES {
+        // SAFETY: zero initialization is valid for this C output structure; Windows overwrites it
+        // before any fields are consumed.
         let mut region: MEMORY_BASIC_INFORMATION = unsafe { zeroed() };
+        // SAFETY: `handle` is live, the remote address is opaque, and `region` is a writable output
+        // whose size exactly matches the value passed. Its fields are consumed only on success.
         let queried = unsafe {
             VirtualQueryEx(
                 handle,
@@ -561,6 +586,8 @@ struct OwnedHandle(HANDLE);
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
+        // SAFETY: this wrapper is constructed only for a checked non-null process handle and
+        // uniquely owns it until this single close.
         unsafe {
             CloseHandle(self.0);
         }
