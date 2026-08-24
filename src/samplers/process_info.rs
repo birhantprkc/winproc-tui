@@ -1,6 +1,7 @@
 use std::{
     ffi::OsString,
     fs,
+    mem::{align_of, size_of},
     path::Path,
     ptr::null_mut,
     sync::mpsc::{self, Receiver, Sender, TryRecvError},
@@ -28,6 +29,11 @@ use crate::{
     platform::to_wide,
     samplers::process_modules::loaded_module_paths,
 };
+
+const _: () = assert!(
+    align_of::<usize>() >= align_of::<u16>(),
+    "the Windows x64 word buffer must align version-resource UTF-16 data"
+);
 
 #[derive(Debug, Clone)]
 pub(crate) enum ProcessInfoRequest {
@@ -429,6 +435,9 @@ fn file_version_info(path: &Path) -> FileMetadataValues {
         return not_available_version();
     };
     let wide_path = to_wide(path);
+    // SAFETY: `wide_path` is NUL-terminated and remains live across both calls. The output buffer
+    // is word-aligned, has at least the exact byte count returned by Windows, and stays live while
+    // all `VerQueryValueW` pointers are validated and consumed below.
     unsafe {
         let mut handle = 0u32;
         let size = GetFileVersionInfoSizeW(wide_path.as_ptr(), &mut handle);
@@ -436,18 +445,19 @@ fn file_version_info(path: &Path) -> FileMetadataValues {
             return not_available_version();
         }
 
-        let mut buffer = vec![0u8; size as usize];
+        let valid_bytes = size as usize;
+        let mut buffer = vec![0usize; valid_bytes.div_ceil(size_of::<usize>())];
         if GetFileVersionInfoW(
             wide_path.as_ptr(),
             0,
             size,
-            buffer.as_mut_ptr() as *mut c_void,
+            buffer.as_mut_ptr().cast::<c_void>(),
         ) == 0
         {
             return not_available_version();
         }
 
-        let mut translations = query_translations(&buffer);
+        let mut translations = query_translations(&buffer, valid_bytes);
         if translations.is_empty() {
             translations.push((0x0409, 0x04b0));
         }
@@ -456,24 +466,28 @@ fn file_version_info(path: &Path) -> FileMetadataValues {
             file_size: InfoValue::Missing,
             company_name: query_version_string_for_translations(
                 &buffer,
+                valid_bytes,
                 &translations,
                 "CompanyName",
             )
             .unwrap_or(InfoValue::NotAvailable),
             product_name: query_version_string_for_translations(
                 &buffer,
+                valid_bytes,
                 &translations,
                 "ProductName",
             )
             .unwrap_or(InfoValue::NotAvailable),
             product_version: query_version_string_for_translations(
                 &buffer,
+                valid_bytes,
                 &translations,
                 "ProductVersion",
             )
             .unwrap_or(InfoValue::NotAvailable),
             file_version: query_version_string_for_translations(
                 &buffer,
+                valid_bytes,
                 &translations,
                 "FileVersion",
             )
@@ -512,10 +526,12 @@ fn format_integer(value: u64) -> String {
     out
 }
 
-unsafe fn query_translations(buffer: &[u8]) -> Vec<(u16, u16)> {
+fn query_translations(buffer: &[usize], valid_bytes: usize) -> Vec<(u16, u16)> {
     let mut ptr = null_mut();
     let mut len = 0u32;
     let block = to_wide("\\VarFileInfo\\Translation");
+    // SAFETY: `buffer` is the live block initialized by `GetFileVersionInfoW`, and `block` is a
+    // live NUL-terminated query string. Windows writes only the result pointer and length.
     if unsafe {
         VerQueryValueW(
             buffer.as_ptr() as *const c_void,
@@ -529,8 +545,14 @@ unsafe fn query_translations(buffer: &[u8]) -> Vec<(u16, u16)> {
     {
         return Vec::new();
     }
-    let pair_count = (len as usize / 4).max(1);
-    let values = unsafe { std::slice::from_raw_parts(ptr as *const u16, pair_count * 2) };
+    let pair_count = len as usize / 4;
+    let Some(value_count) = pair_count.checked_mul(2) else {
+        return Vec::new();
+    };
+    let Some(values) = version_buffer_slice(buffer, valid_bytes, ptr as *const u16, value_count)
+    else {
+        return Vec::new();
+    };
     values
         .chunks_exact(2)
         .map(|pair| (pair[0], pair[1]))
@@ -538,17 +560,19 @@ unsafe fn query_translations(buffer: &[u8]) -> Vec<(u16, u16)> {
 }
 
 fn query_version_string_for_translations(
-    buffer: &[u8],
+    buffer: &[usize],
+    valid_bytes: usize,
     translations: &[(u16, u16)],
     key: &str,
 ) -> Option<InfoValue> {
     translations
         .iter()
-        .find_map(|translation| unsafe { query_version_string(buffer, *translation, key) })
+        .find_map(|translation| query_version_string(buffer, valid_bytes, *translation, key))
 }
 
-unsafe fn query_version_string(
-    buffer: &[u8],
+fn query_version_string(
+    buffer: &[usize],
+    valid_bytes: usize,
     translation: (u16, u16),
     key: &str,
 ) -> Option<InfoValue> {
@@ -559,6 +583,9 @@ unsafe fn query_version_string(
     let wide_block = to_wide(&sub_block);
     let mut ptr = null_mut();
     let mut len = 0u32;
+    // SAFETY: `buffer` is the live block initialized by `GetFileVersionInfoW`, and `wide_block`
+    // remains live and NUL-terminated for the query. Windows writes only the result pointer and
+    // UTF-16 element count, which are checked against the source block below.
     if unsafe {
         VerQueryValueW(
             buffer.as_ptr() as *const c_void,
@@ -572,12 +599,45 @@ unsafe fn query_version_string(
     {
         return None;
     }
-    let chars = unsafe { std::slice::from_raw_parts(ptr as *const u16, len as usize) };
+    let chars = version_buffer_slice(buffer, valid_bytes, ptr as *const u16, len as usize)?;
     let value = String::from_utf16_lossy(chars)
         .trim_end_matches('\0')
         .trim()
         .to_string();
     (!value.is_empty()).then_some(InfoValue::Value(value))
+}
+
+fn version_buffer_slice<T>(
+    buffer: &[usize],
+    valid_bytes: usize,
+    ptr: *const T,
+    element_count: usize,
+) -> Option<&[T]> {
+    if ptr.is_null() || size_of::<T>() == 0 {
+        return None;
+    }
+
+    let capacity_bytes = buffer.len().checked_mul(size_of::<usize>())?;
+    if valid_bytes > capacity_bytes {
+        return None;
+    }
+    let start = buffer.as_ptr() as usize;
+    let end = start.checked_add(valid_bytes)?;
+    let address = ptr as usize;
+    let view_bytes = element_count.checked_mul(size_of::<T>())?;
+    let view_end = address.checked_add(view_bytes)?;
+    if address < start
+        || address >= end
+        || view_end > end
+        || !address.is_multiple_of(align_of::<T>())
+    {
+        return None;
+    }
+
+    // SAFETY: the caller-provided pointer is checked for null, `T` alignment, overflow, and full
+    // containment in the initialized portion of the live version-resource buffer. The returned
+    // shared slice cannot outlive `buffer`.
+    Some(unsafe { std::slice::from_raw_parts(ptr, element_count) })
 }
 
 fn format_system_time(time: SystemTime) -> String {
@@ -681,5 +741,32 @@ mod tests {
             version_resource_value(&InfoValue::Value("8.0.25+abcdef".to_string())),
             Some("8.0.25".to_string())
         );
+    }
+
+    #[test]
+    fn version_buffer_views_require_alignment_and_bounds() {
+        let buffer = vec![0usize; 2];
+        let valid_bytes = buffer.len() * size_of::<usize>();
+        let base = buffer.as_ptr().cast::<u16>();
+
+        assert_eq!(
+            version_buffer_slice(&buffer, valid_bytes, base, 2).map(<[u16]>::len),
+            Some(2)
+        );
+        assert!(
+            version_buffer_slice(&buffer, valid_bytes, (base as usize + 1) as *const u16, 1,)
+                .is_none()
+        );
+        assert!(
+            version_buffer_slice(
+                &buffer,
+                valid_bytes,
+                (base as usize + valid_bytes) as *const u16,
+                1,
+            )
+            .is_none()
+        );
+        assert!(version_buffer_slice(&buffer, valid_bytes, base, valid_bytes / 2 + 1).is_none());
+        assert!(version_buffer_slice(&buffer, valid_bytes + 1, base, 1).is_none());
     }
 }
