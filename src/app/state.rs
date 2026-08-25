@@ -2131,8 +2131,7 @@ impl App {
                 .collect(),
             GraphSlot::System { metric } => self
                 .display_system_history()
-                .samples()
-                .iter()
+                .samples_iter()
                 .map(|sample| GraphSample {
                     captured_at: sample.captured_at,
                     value: sample.value(*metric),
@@ -2142,8 +2141,7 @@ impl App {
                 adapter_id, metric, ..
             } => self
                 .display_system_history()
-                .samples()
-                .iter()
+                .samples_iter()
                 .map(|sample| GraphSample {
                     captured_at: sample.captured_at,
                     value: sample.gpu_value(*adapter_id, *metric),
@@ -2157,9 +2155,7 @@ impl App {
             GraphSlot::Process { identity, .. } => {
                 self.display_process_history().sample_count_for(identity)
             }
-            GraphSlot::System { .. } | GraphSlot::Gpu { .. } => {
-                self.display_system_history().samples().len()
-            }
+            GraphSlot::System { .. } | GraphSlot::Gpu { .. } => self.display_system_history().len(),
         }
     }
 
@@ -2179,7 +2175,7 @@ impl App {
                 })
             }
             GraphSlot::System { metric } => {
-                let sample = self.display_system_history().samples().get(index)?;
+                let sample = self.display_system_history().sample_at_index(index)?;
                 Some(GraphSample {
                     captured_at: sample.captured_at,
                     value: sample.value(*metric),
@@ -2188,7 +2184,7 @@ impl App {
             GraphSlot::Gpu {
                 adapter_id, metric, ..
             } => {
-                let sample = self.display_system_history().samples().get(index)?;
+                let sample = self.display_system_history().sample_at_index(index)?;
                 Some(GraphSample {
                     captured_at: sample.captured_at,
                     value: sample.gpu_value(*adapter_id, *metric),

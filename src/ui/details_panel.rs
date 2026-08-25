@@ -112,7 +112,7 @@ pub(crate) fn draw_details_panel(
             app.active_graph_slot()
                 .map(|slot| Cow::Owned(app.graph_slot_samples(slot)))
         })
-        .unwrap_or_else(|| Cow::Borrowed(&[]));
+        .unwrap_or(Cow::Borrowed(&[]));
     let selected_sample_time = active_samples
         .get(app.details_sample_selected)
         .map(|sample| sample.captured_at);

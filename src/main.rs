@@ -57,6 +57,8 @@ use model::Snapshot;
 #[cfg(test)]
 use model::SystemCounterSample;
 #[cfg(test)]
+use model::history::SystemSample;
+#[cfg(test)]
 use model::{
     ColumnPreset, CpuCoreKind, CpuLogicalProcessorSample, InfoValue, MetricColumn,
     ProcessColumnWidths, ProcessEnvironmentEntry, ProcessEnvironmentError,
@@ -1272,6 +1274,142 @@ processes = ["api.exe", "worker.exe"]
             render_durations.push(start.elapsed());
         }
         summarize("graph-render slots=4 samples=7200", &render_durations);
+    }
+
+    #[test]
+    #[ignore = "manual performance probe; run with --ignored --nocapture"]
+    fn perf_pause_long_histories() {
+        fn summarize(label: &str, durations: &[Duration]) {
+            let mut nanos = durations
+                .iter()
+                .map(|duration| duration.as_nanos() as u64)
+                .collect::<Vec<_>>();
+            nanos.sort_unstable();
+            let percentile = |percent: usize| -> u64 {
+                let index = nanos.len().saturating_sub(1).saturating_mul(percent) / 100;
+                nanos[index]
+            };
+            let avg = nanos.iter().sum::<u64>() / nanos.len().max(1) as u64;
+            println!(
+                "{label}: avg={}ns p50={}ns p95={}ns p99={}ns max={}ns",
+                avg,
+                percentile(50),
+                percentile(95),
+                percentile(99),
+                nanos.last().copied().unwrap_or(0)
+            );
+        }
+
+        let mut snapshot = test_snapshot(32);
+        let tracked_names = snapshot
+            .processes
+            .iter()
+            .map(|process| process.name.to_ascii_lowercase())
+            .collect::<std::collections::HashSet<_>>();
+        let base = snapshot.captured_at - chrono::Duration::seconds(7_199);
+        let mut process_history = ProcessHistory::default();
+        let mut system_history = SystemHistory::default();
+        for offset in 0..7_200_i64 {
+            snapshot.captured_at = base + chrono::Duration::seconds(offset);
+            process_history.record_snapshot(
+                snapshot.captured_at,
+                &snapshot.processes,
+                &tracked_names,
+            );
+            system_history.record_snapshot(&snapshot);
+        }
+
+        let mut clone_durations = Vec::new();
+        for _ in 0..50 {
+            let start = Instant::now();
+            let paused_process_history = process_history.clone();
+            let paused_system_history = system_history.clone();
+            clone_durations.push(start.elapsed());
+            std::hint::black_box((paused_process_history, paused_system_history));
+        }
+        summarize(
+            "pause-history-clone processes=32 samples=7200",
+            &clone_durations,
+        );
+
+        let mut pause_and_sample_durations = Vec::new();
+        for offset in 0..50_i64 {
+            snapshot.captured_at += chrono::Duration::seconds(1);
+            let start = Instant::now();
+            let paused_process_history = process_history.clone();
+            let paused_system_history = system_history.clone();
+            process_history.record_snapshot(
+                snapshot.captured_at,
+                &snapshot.processes,
+                &tracked_names,
+            );
+            system_history.record_snapshot(&snapshot);
+            pause_and_sample_durations.push(start.elapsed());
+            std::hint::black_box((paused_process_history, paused_system_history, offset));
+        }
+        summarize(
+            "pause+next-history-sample processes=32 samples=7200",
+            &pause_and_sample_durations,
+        );
+    }
+
+    #[test]
+    #[ignore = "manual performance probe; run with --ignored --nocapture"]
+    fn perf_system_history_retention() {
+        fn summarize(label: &str, durations: &[Duration]) {
+            let mut nanos = durations
+                .iter()
+                .map(|duration| duration.as_nanos() as u64)
+                .collect::<Vec<_>>();
+            nanos.sort_unstable();
+            let percentile = |percent: usize| -> u64 {
+                let index = nanos.len().saturating_sub(1).saturating_mul(percent) / 100;
+                nanos[index]
+            };
+            let avg = nanos.iter().sum::<u64>() / nanos.len().max(1) as u64;
+            println!(
+                "{label}: avg={}ns p50={}ns p95={}ns p99={}ns max={}ns",
+                avg,
+                percentile(50),
+                percentile(95),
+                percentile(99),
+                nanos.last().copied().unwrap_or(0)
+            );
+        }
+
+        let mut snapshot = test_snapshot(0);
+        let initial = SystemSample::from_snapshot(&snapshot);
+        let mut legacy = vec![initial; 7_200];
+        let mut current = SystemHistory::default();
+        for _ in 0..7_200 {
+            snapshot.captured_at += chrono::Duration::seconds(1);
+            current.record_snapshot(&snapshot);
+        }
+
+        let mut legacy_durations = Vec::new();
+        let mut current_durations = Vec::new();
+        for _ in 0..2_000 {
+            snapshot.captured_at += chrono::Duration::seconds(1);
+            let sample = SystemSample::from_snapshot(&snapshot);
+            let start = Instant::now();
+            legacy.push(sample);
+            legacy.drain(0..1);
+            legacy_durations.push(start.elapsed());
+            std::hint::black_box(legacy.first());
+
+            let start = Instant::now();
+            current.record_snapshot(&snapshot);
+            current_durations.push(start.elapsed());
+            std::hint::black_box(current.sample_at_index(0));
+        }
+        summarize(
+            "system-history legacy vec-drain samples=7200",
+            &legacy_durations,
+        );
+        summarize(
+            "system-history current chunked-ring samples=7200",
+            &current_durations,
+        );
     }
 
     #[test]
