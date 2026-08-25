@@ -17,6 +17,25 @@ Before opening an Issue:
 
 Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in a public Issue.
 
+## Development Issue Policy
+
+Use a GitHub Issue to track implementation work when it:
+
+- adds or changes a user-facing feature;
+- corrects a user-visible bug;
+- changes a specification, compatibility guarantee, or development-workflow policy; or
+- needs investigation, discussion, acceptance criteria, or progress tracking.
+
+An Issue is not required when the work is limited to:
+
+- version updates and routine release preparation;
+- typo, formatting, or comment corrections;
+- documentation corrections that only align text with existing behavior and policy;
+- behavior-preserving refactoring or warning cleanup; or
+- routine dependency, CI, or packaging maintenance that does not change user-facing behavior, specifications, or compatibility.
+
+Commit count, file count, and implementation size do not determine whether an Issue is required. A small feature or bug fix still requires an Issue. If an existing Issue already covers the work, use it instead of creating a duplicate. If initially Issue-free work expands into a category that requires an Issue, create or select the Issue before continuing with that expanded scope.
+
 ## Maintainer-Requested Pull Requests
 
 If the maintainer explicitly asks you to submit a pull request for a specific change:
