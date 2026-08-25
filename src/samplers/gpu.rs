@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
-    mem::zeroed,
-    ptr::{null, null_mut},
+    mem::{MaybeUninit, zeroed},
+    ptr::{NonNull, null, null_mut},
 };
 
 use winapi::{
@@ -339,34 +339,41 @@ fn parse_pid_from_gpu_instance(instance_name: &str) -> Option<u32> {
 }
 
 fn collect_gpu_adapters() -> Vec<GpuAdapterSample> {
-    // SAFETY: COM output pointers target initialized locals and are checked for successful,
-    // non-null results before dereference. Each acquired adapter is released once after its
-    // description call, and the factory remains live through enumeration and is then released.
+    // SAFETY: DXGI initializes each out-pointer when its HRESULT succeeds. Only successful,
+    // non-null results are converted to `NonNull` and accessed. Each acquired adapter is released
+    // once after its description call, and the factory remains live through enumeration and is
+    // then released.
     unsafe {
-        let mut factory: *mut IDXGIFactory1 = null_mut();
+        let mut factory = MaybeUninit::<*mut IDXGIFactory1>::uninit();
         let status = CreateDXGIFactory1(
             &IID_IDXGIFactory1,
-            &mut factory as *mut _ as *mut *mut c_void,
+            factory.as_mut_ptr().cast::<*mut c_void>(),
         );
-        if !hresult_succeeded(status) || factory.is_null() {
+        if !hresult_succeeded(status) {
             return Vec::new();
         }
+        let Some(factory) = NonNull::new(factory.assume_init()) else {
+            return Vec::new();
+        };
 
         let mut adapters = Vec::new();
         let mut index = 0u32;
         loop {
-            let mut adapter: *mut IDXGIAdapter1 = null_mut();
-            let status = (*factory).EnumAdapters1(index, &mut adapter);
+            let mut adapter = MaybeUninit::<*mut IDXGIAdapter1>::uninit();
+            let status = factory.as_ref().EnumAdapters1(index, adapter.as_mut_ptr());
             if status == DXGI_ERROR_NOT_FOUND {
                 break;
             }
-            if !hresult_succeeded(status) || adapter.is_null() {
+            if !hresult_succeeded(status) {
                 break;
             }
+            let Some(adapter) = NonNull::new(adapter.assume_init()) else {
+                break;
+            };
 
             let mut desc: DXGI_ADAPTER_DESC1 = zeroed();
-            let got_desc = hresult_succeeded((*adapter).GetDesc1(&mut desc));
-            (*adapter).Release();
+            let got_desc = hresult_succeeded(adapter.as_ref().GetDesc1(&mut desc));
+            adapter.as_ref().Release();
             if got_desc && !is_filtered_dxgi_adapter(desc.Flags) {
                 let name = wide_slice_to_string(&desc.Description);
                 adapters.push(GpuAdapterSample {
@@ -384,7 +391,7 @@ fn collect_gpu_adapters() -> Vec<GpuAdapterSample> {
             }
             index = index.saturating_add(1);
         }
-        (*factory).Release();
+        factory.as_ref().Release();
         adapters
     }
 }
