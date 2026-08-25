@@ -7097,20 +7097,21 @@ impl App {
         self.status = "Display paused".to_string();
     }
 
-    pub(crate) fn request_sample(&mut self) -> Result<()> {
+    pub(crate) fn request_sample(&mut self) -> Result<bool> {
         if self.activity() == AppActivity::LogView {
-            return Ok(());
+            return Ok(false);
         }
         if self.sampling_in_progress {
-            return Ok(());
+            return Ok(false);
         }
 
         self.sampling_worker.request_sample()?;
         self.sampling_in_progress = true;
-        if self.recording_session.is_some() {
+        let recording_spinner_changed = self.recording_session.is_some();
+        if recording_spinner_changed {
             self.recording_spinner_index = self.recording_spinner_index.wrapping_add(1);
         }
-        Ok(())
+        Ok(recording_spinner_changed)
     }
 
     pub(crate) fn poll_sample_results(&mut self) -> Result<bool> {

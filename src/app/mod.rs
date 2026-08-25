@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::Result;
-use crossterm::event::{self, Event};
+use crossterm::event::{self, Event, MouseEvent, MouseEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 
 use crate::ui::{
@@ -175,11 +175,11 @@ pub(crate) fn run_tui(
                     dirty = true;
                 }
                 Event::Mouse(mouse) => {
-                    app.on_mouse(
+                    dirty |= handle_mouse_event(
+                        app,
                         mouse,
                         Rect::new(0, 0, screen_size.width, screen_size.height),
                     );
-                    dirty = true;
                 }
                 Event::Resize(width, height) => {
                     screen_size.width = width;
@@ -191,13 +191,19 @@ pub(crate) fn run_tui(
         }
 
         if last_tick.elapsed() >= app.tick_interval() {
-            app.request_sample()?;
+            dirty |= app.request_sample()? && !app.is_display_paused();
             last_tick = Instant::now();
-            dirty |= !app.is_display_paused();
         }
     }
 
     Ok(())
+}
+
+pub(crate) fn handle_mouse_event(app: &mut App, mouse: MouseEvent, screen_area: Rect) -> bool {
+    let previous_hover = (app.graph_hovered_target, app.cpu_per_core_hovered);
+    app.on_mouse(mouse, screen_area);
+    mouse.kind != MouseEventKind::Moved
+        || previous_hover != (app.graph_hovered_target, app.cpu_per_core_hovered)
 }
 
 struct LoopTrace {

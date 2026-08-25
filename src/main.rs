@@ -37,6 +37,8 @@ mod ui;
 pub(crate) use app::App;
 #[cfg(test)]
 use app::export::MAX_RECORDING_DURATION;
+#[cfg(test)]
+use app::handle_mouse_event;
 use app::run_tui;
 #[cfg(test)]
 use app::{
@@ -4833,7 +4835,16 @@ processes = ["api.exe", "worker.exe"]
         assert_eq!(zoom_in_text, "[+]");
         assert_eq!(initial[(zoom_out.x + 1, zoom_out.y)].bg, app.theme().panel);
 
-        app.on_mouse(mouse_move(zoom_out.x + 1, zoom_out.y), screen);
+        assert!(handle_mouse_event(
+            &mut app,
+            mouse_move(zoom_out.x + 1, zoom_out.y),
+            screen,
+        ));
+        assert!(!handle_mouse_event(
+            &mut app,
+            mouse_move(zoom_out.x + 1, zoom_out.y),
+            screen,
+        ));
 
         assert_eq!(app.graph_hovered_target, Some(GraphHoverTarget::ZoomOut));
         let hovered = render_app_to_buffer(&app, screen.width, screen.height);
@@ -13412,12 +13423,12 @@ processes = ["api.exe", "worker.exe"]
         let mut app = make_test_app_with_worker(3, 10, sampling_worker);
         app.status = "Copied row: proc-0".to_string();
 
-        app.request_sample().unwrap();
+        assert!(!app.request_sample().unwrap());
         assert!(app.sampling_in_progress);
         assert_eq!(request_rx.try_recv(), Ok(SampleRequest::Sample));
         assert_eq!(app.status, "Copied row: proc-0");
 
-        app.request_sample().unwrap();
+        assert!(!app.request_sample().unwrap());
         assert_eq!(request_rx.try_recv(), Err(TryRecvError::Empty));
         assert_eq!(app.status, "Copied row: proc-0");
     }
