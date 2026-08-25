@@ -60,6 +60,7 @@ use model::{
     ProcessColumnWidths, ProcessEnvironmentEntry, ProcessEnvironmentError,
     ProcessEnvironmentReport, ProcessIdentity, ProcessInfo, ProcessModuleEntry,
     ProcessModulesError, ProcessModulesReport, ProcessRow, SortColumn, SortDirection, SortSpec,
+    sort_process_rows,
 };
 #[cfg(test)]
 use model::{ProcessHistory, SystemHistory, SystemMetric};
@@ -1269,6 +1270,75 @@ processes = ["api.exe", "worker.exe"]
             render_durations.push(start.elapsed());
         }
         summarize("graph-render slots=4 samples=7200", &render_durations);
+    }
+
+    #[test]
+    #[ignore = "manual performance probe; run with --ignored --nocapture"]
+    fn perf_process_sorting() {
+        fn summarize(label: &str, durations: &[Duration]) {
+            let mut micros = durations
+                .iter()
+                .map(|duration| duration.as_micros() as u64)
+                .collect::<Vec<_>>();
+            micros.sort_unstable();
+            let percentile = |percent: usize| -> u64 {
+                let index = micros.len().saturating_sub(1).saturating_mul(percent) / 100;
+                micros[index]
+            };
+            let avg = micros.iter().sum::<u64>() / micros.len().max(1) as u64;
+            println!(
+                "{label}: avg={}us p50={}us p95={}us p99={}us max={}us",
+                avg,
+                percentile(50),
+                percentile(95),
+                percentile(99),
+                micros.last().copied().unwrap_or(0)
+            );
+        }
+
+        let template = test_snapshot(1_000).processes;
+        let sort = SortSpec {
+            column: SortColumn::ProcessName,
+            direction: SortDirection::Asc,
+        };
+        let mut legacy_durations = Vec::new();
+        let mut current_durations = Vec::new();
+        for _ in 0..500 {
+            let mut rows = template.clone();
+            let start = Instant::now();
+            rows.sort_by(|left, right| {
+                right
+                    .workset_bytes
+                    .unwrap_or(0)
+                    .cmp(&left.workset_bytes.unwrap_or(0))
+                    .then_with(|| {
+                        right
+                            .private_bytes
+                            .unwrap_or(0)
+                            .cmp(&left.private_bytes.unwrap_or(0))
+                    })
+                    .then_with(|| left.name.cmp(&right.name))
+            });
+            rows.sort_by(|left, right| {
+                left.name
+                    .to_ascii_lowercase()
+                    .cmp(&right.name.to_ascii_lowercase())
+                    .then_with(|| left.pid.cmp(&right.pid))
+            });
+            legacy_durations.push(start.elapsed());
+            std::hint::black_box(rows.first());
+
+            let mut rows = template.clone();
+            let start = Instant::now();
+            sort_process_rows(&mut rows, sort);
+            current_durations.push(start.elapsed());
+            std::hint::black_box(rows.first());
+        }
+        summarize("process-sort legacy rows=1000 passes=2", &legacy_durations);
+        summarize(
+            "process-sort current rows=1000 passes=1",
+            &current_durations,
+        );
     }
 
     #[test]

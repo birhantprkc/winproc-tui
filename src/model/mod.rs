@@ -8,7 +8,7 @@ pub(crate) mod system;
 
 pub(crate) use columns::{
     ColumnPreset, MetricColumn, ProcessColumnWidths, SortColumn, SortDirection, SortSpec,
-    sort_process_rows,
+    compare_process_rows, sort_process_rows,
 };
 pub(crate) use history::{
     GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY, ProcessHistory, ProcessIdentity, ProcessSample,

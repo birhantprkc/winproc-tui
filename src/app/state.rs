@@ -23,7 +23,7 @@ use crate::{
         ProcessColumnWidths, ProcessEnvironmentError, ProcessEnvironmentReport, ProcessHistory,
         ProcessIdentity, ProcessInfo, ProcessModulesError, ProcessModulesReport, ProcessRow,
         ProcessSample, Snapshot, SortColumn, SortDirection, SortSpec, SystemHistory, SystemMetric,
-        TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY, sort_process_rows,
+        TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY, compare_process_rows, sort_process_rows,
     },
     samplers::{
         CollectSnapshotResult, SamplingRuntime, SamplingWorker,
@@ -7452,7 +7452,6 @@ fn preserve_process_row_order(
     previous_rows: &[ProcessRow],
     sort: SortSpec,
 ) {
-    sort_process_rows(rows, sort);
     let previous_positions = previous_rows
         .iter()
         .enumerate()
@@ -7465,7 +7464,7 @@ fn preserve_process_row_order(
             (Some(left), Some(right)) => left.cmp(right),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
+            (None, None) => compare_process_rows(left, right, sort),
         }
     });
 }
