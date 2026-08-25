@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use chrono::{DateTime, Local};
 use ratatui::{
     buffer::Buffer,
@@ -36,6 +38,15 @@ use crate::{
 const SAMPLE_METRIC_VALUE_WIDTH: usize = 15;
 const SAMPLE_DELTA_WIDTH: usize = 15;
 
+struct GraphCardRenderData {
+    samples: Vec<GraphSample>,
+    metric: GraphValueFormat,
+    bounds: (i64, i64),
+    segments: Vec<Vec<(f64, f64)>>,
+    y_min: f64,
+    y_max: f64,
+}
+
 pub(crate) fn draw_details_panel(
     frame: &mut ratatui::Frame<'_>,
     area: Rect,
@@ -63,35 +74,71 @@ pub(crate) fn draw_details_panel(
         layout.graph_slots,
     );
 
-    let visible_indices = layout
+    let bounds = graph_bounds(
+        app.effective_graph_time_span_seconds(),
+        app.effective_graph_time_offset_seconds(),
+    );
+    let time_reference_at = app.graph_time_reference_at();
+    let frame_times =
+        (!app.log_view_frame_times.is_empty()).then_some(app.log_view_frame_times.as_slice());
+    let prepared_cards = layout
         .graph_cards
         .iter()
-        .map(|card| card.ordinal)
+        .filter_map(|card| {
+            let entry = app.graph_entry(card.ordinal)?;
+            Some((
+                card.ordinal,
+                prepare_graph_card_render_data(
+                    app,
+                    &entry.source,
+                    bounds,
+                    time_reference_at,
+                    frame_times,
+                ),
+            ))
+        })
         .collect::<Vec<_>>();
-    let common_y_label_width = graph_y_axis_label_width_for_indices(app, &visible_indices);
-    let selected_sample_time = app.selected_details_sample_time();
+    let common_y_label_width = prepared_cards
+        .iter()
+        .map(|(_, data)| y_axis_label_width(&y_axis_labels(data.y_min, data.y_max, data.metric)))
+        .max()
+        .unwrap_or(1);
+    let active_index = app.active_graph_index();
+    let active_samples = prepared_cards
+        .iter()
+        .find(|(index, _)| Some(*index) == active_index)
+        .map(|(_, data)| Cow::Borrowed(data.samples.as_slice()))
+        .or_else(|| {
+            app.active_graph_slot()
+                .map(|slot| Cow::Owned(app.graph_slot_samples(slot)))
+        })
+        .unwrap_or_else(|| Cow::Borrowed(&[]));
+    let selected_sample_time = active_samples
+        .get(app.details_sample_selected)
+        .map(|sample| sample.captured_at);
     for card in &layout.graph_cards {
         let Some(entry) = app.graph_entry(card.ordinal) else {
             continue;
         };
-        let samples = app.graph_slot_samples(&entry.source);
-        let peak = app.graph_slot_peak(&entry.source);
-        let metric = entry.source.value_format();
+        let Some((_, data)) = prepared_cards
+            .iter()
+            .find(|(index, _)| *index == card.ordinal)
+        else {
+            continue;
+        };
         render_graph_card(
             frame,
             card,
             graph_slot_title_line(
                 &entry.source,
                 card.ordinal,
-                samples.as_slice(),
-                metric,
+                data.samples.as_slice(),
+                data.metric,
                 app.active_ab_comparison(),
                 app.active_graph_id == Some(entry.id),
                 theme,
             ),
-            samples.as_slice(),
-            peak,
-            metric,
+            data,
             app,
             theme,
             common_y_label_width,
@@ -101,7 +148,7 @@ pub(crate) fn draw_details_panel(
     }
     render_graph_workspace_scrollbar(frame, &layout, app.graph_scroll_row, graph_focused, theme);
     if let Some(samples_area) = layout.samples {
-        draw_active_samples_inspector(frame, samples_area, app, theme);
+        draw_active_samples_inspector(frame, samples_area, app, active_samples.as_ref(), theme);
     }
 }
 
@@ -140,15 +187,39 @@ fn graph_y_axis_label_width_for_indices(app: &App, indices: &[usize]) -> usize {
         .unwrap_or(1)
 }
 
+fn prepare_graph_card_render_data(
+    app: &App,
+    slot: &GraphSlot,
+    bounds: (i64, i64),
+    time_reference_at: Option<DateTime<Local>>,
+    frame_times: Option<&[DateTime<Local>]>,
+) -> GraphCardRenderData {
+    let samples = app.graph_slot_samples(slot);
+    let metric = slot.value_format();
+    let segments = chart_segments(&samples, bounds, time_reference_at, frame_times);
+    let stats = graph_stats_for_values(
+        &samples,
+        app.graph_slot_peak(slot),
+        segments.iter().flatten().map(|(_, value)| *value),
+    );
+    let (y_min, y_max) = graph_y_bounds(&stats, app.graph_y_axis_zero_min);
+    GraphCardRenderData {
+        samples,
+        metric,
+        bounds,
+        segments,
+        y_min,
+        y_max,
+    }
+}
+
 // Graph rendering combines independent layout, series, and shared-time inputs.
 #[allow(clippy::too_many_arguments)]
 fn render_graph_card(
     frame: &mut ratatui::Frame<'_>,
     card: &GraphCardLayout,
     title: Line<'static>,
-    samples: &[GraphSample],
-    peak: Option<f64>,
-    metric: GraphValueFormat,
+    data: &GraphCardRenderData,
     app: &App,
     theme: Theme,
     y_label_width: usize,
@@ -169,7 +240,7 @@ fn render_graph_card(
             Paragraph::new(lines).style(Style::default().fg(theme.muted).bg(theme.panel)),
             inner,
         );
-    } else if samples.is_empty() {
+    } else if data.samples.is_empty() {
         let lines = vec![Line::from(Span::styled(
             "No samples available",
             Style::default().fg(theme.muted),
@@ -182,16 +253,14 @@ fn render_graph_card(
         draw_graph_content(
             frame,
             card.plot,
-            samples,
-            peak,
-            metric,
+            &data.samples,
+            data.metric,
             selected_sample_time,
             app.graph_time_reference_at(),
-            app.effective_graph_time_span_seconds(),
-            app.effective_graph_time_offset_seconds(),
-            app.graph_y_axis_zero_min,
+            data.bounds,
+            &data.segments,
+            (data.y_min, data.y_max),
             app.active_ab_comparison(),
-            (!app.log_view_frame_times.is_empty()).then_some(app.log_view_frame_times.as_slice()),
             active,
             theme,
             y_label_width,
@@ -246,6 +315,7 @@ fn draw_active_samples_inspector(
     frame: &mut ratatui::Frame<'_>,
     area: Rect,
     app: &App,
+    samples: &[GraphSample],
     theme: Theme,
 ) {
     let (Some(index), Some(entry)) = (
@@ -262,7 +332,6 @@ fn draw_active_samples_inspector(
     );
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let samples = app.graph_slot_samples(&entry.source);
     if samples.is_empty() {
         frame.render_widget(
             Paragraph::new("No samples available")
@@ -275,15 +344,13 @@ fn draw_active_samples_inspector(
         frame,
         inner,
         app,
-        &samples,
+        samples,
         entry.source.value_format(),
         entry.source.metric_label(),
         app.details_sample_selected,
         app.details_sample_offset,
-        true,
         app.active_ab_comparison(),
         theme,
-        index,
         true,
         app.show_sample_delta,
     );
@@ -348,21 +415,15 @@ fn draw_samples_subpanel(
     metric_label: &str,
     selected: usize,
     offset: usize,
-    is_active_slot: bool,
     comparison: Option<&AbComparison>,
     theme: Theme,
-    slot_index: usize,
     show_base_summary: bool,
     show_delta: bool,
 ) -> SampleViewport {
     let inner = area;
-    let metric_header_style = if is_active_slot {
-        Style::default()
-            .fg(theme.accent)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.muted)
-    };
+    let metric_header_style = Style::default()
+        .fg(theme.accent)
+        .add_modifier(Modifier::BOLD);
     let mut lines = vec![Line::from(vec![
         Span::styled("A/B ", Style::default().fg(theme.muted)),
         Span::styled("Time      ", Style::default().fg(theme.muted)),
@@ -383,13 +444,11 @@ fn draw_samples_subpanel(
     let content_height = inner.height as usize;
     let row_capacity =
         details_samples_row_capacity(inner.height, comparison.is_some(), show_base_summary);
-    let view_state = app
-        .details_sample_view_state_for_slot(slot_index, row_capacity)
-        .unwrap_or(crate::app::DetailsSampleViewState {
-            selected_index: selected.min(samples.len().saturating_sub(1)),
-            selected_exact: is_active_slot,
-            offset,
-        });
+    let view_state = crate::app::DetailsSampleViewState {
+        selected_index: selected.min(samples.len().saturating_sub(1)),
+        selected_exact: true,
+        offset,
+    };
     let (start, end) = sample_viewport_bounds(samples.len(), view_state.offset, row_capacity);
     for (index, sample) in samples[start..end].iter().enumerate() {
         let sample_index = start + index;
@@ -635,26 +694,20 @@ fn draw_graph_content(
     frame: &mut ratatui::Frame<'_>,
     area: Rect,
     samples: &[GraphSample],
-    peak: Option<f64>,
     metric: GraphValueFormat,
     selected_sample_time: Option<DateTime<Local>>,
     time_reference_at: Option<DateTime<Local>>,
-    span_seconds: u32,
-    offset_seconds: u32,
-    y_axis_zero_min: bool,
+    bounds: (i64, i64),
+    segments: &[Vec<(f64, f64)>],
+    y_bounds: (f64, f64),
     comparison: Option<&AbComparison>,
-    frame_times: Option<&[DateTime<Local>]>,
     active: bool,
     theme: Theme,
     y_label_width: usize,
 ) {
     let layout = details_graph_rows(area);
 
-    let bounds = graph_bounds(span_seconds, offset_seconds);
-    let segments = chart_segments(samples, bounds, time_reference_at, frame_times);
-    let data = segments.iter().flatten().copied().collect::<Vec<_>>();
-    let stats = graph_stats(samples, peak, &data);
-    let (y_min, y_max) = graph_y_bounds(&stats, y_axis_zero_min);
+    let (y_min, y_max) = y_bounds;
     let plot_segments = segments
         .iter()
         .map(|segment| lift_floor_points_for_plot(segment, y_min, y_max))
@@ -1401,9 +1454,21 @@ struct GraphStats {
 }
 
 fn graph_stats(samples: &[GraphSample], peak: Option<f64>, points: &[(f64, f64)]) -> GraphStats {
+    graph_stats_for_values(samples, peak, points.iter().map(|(_, value)| *value))
+}
+
+fn graph_stats_for_values(
+    samples: &[GraphSample],
+    peak: Option<f64>,
+    values: impl Iterator<Item = f64>,
+) -> GraphStats {
     let current = samples.last().and_then(|sample| sample.value);
-    let window_min = points.iter().map(|(_, value)| *value).reduce(f64::min);
-    let window_max = points.iter().map(|(_, value)| *value).reduce(f64::max);
+    let (window_min, window_max) = values.fold((None, None), |(min, max), value| {
+        (
+            Some(min.map_or(value, |current: f64| current.min(value))),
+            Some(max.map_or(value, |current: f64| current.max(value))),
+        )
+    });
     let max = peak;
     GraphStats {
         current,

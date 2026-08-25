@@ -2123,8 +2123,7 @@ impl App {
         match slot {
             GraphSlot::Process { identity, metric } => self
                 .display_process_history()
-                .samples_for(identity)
-                .into_iter()
+                .samples_for_iter(identity)
                 .map(|sample| GraphSample {
                     captured_at: sample.captured_at,
                     value: process_sample_metric_value(sample, *metric),
@@ -2153,6 +2152,51 @@ impl App {
         }
     }
 
+    pub(crate) fn graph_slot_sample_count(&self, slot: &GraphSlot) -> usize {
+        match slot {
+            GraphSlot::Process { identity, .. } => {
+                self.display_process_history().sample_count_for(identity)
+            }
+            GraphSlot::System { .. } | GraphSlot::Gpu { .. } => {
+                self.display_system_history().samples().len()
+            }
+        }
+    }
+
+    pub(crate) fn graph_slot_sample_at(
+        &self,
+        slot: &GraphSlot,
+        index: usize,
+    ) -> Option<GraphSample> {
+        match slot {
+            GraphSlot::Process { identity, metric } => {
+                let sample = self
+                    .display_process_history()
+                    .sample_at_index(identity, index)?;
+                Some(GraphSample {
+                    captured_at: sample.captured_at,
+                    value: process_sample_metric_value(sample, *metric),
+                })
+            }
+            GraphSlot::System { metric } => {
+                let sample = self.display_system_history().samples().get(index)?;
+                Some(GraphSample {
+                    captured_at: sample.captured_at,
+                    value: sample.value(*metric),
+                })
+            }
+            GraphSlot::Gpu {
+                adapter_id, metric, ..
+            } => {
+                let sample = self.display_system_history().samples().get(index)?;
+                Some(GraphSample {
+                    captured_at: sample.captured_at,
+                    value: sample.gpu_value(*adapter_id, *metric),
+                })
+            }
+        }
+    }
+
     pub(crate) fn graph_slot_peak(&self, slot: &GraphSlot) -> Option<f64> {
         let GraphSlot::Process { identity, metric } = slot else {
             return None;
@@ -2171,8 +2215,7 @@ impl App {
 
     pub(crate) fn selected_details_sample_time(&self) -> Option<DateTime<Local>> {
         let slot = self.active_graph_slot()?;
-        self.graph_slot_samples(slot)
-            .get(self.details_sample_selected)
+        self.graph_slot_sample_at(slot, self.details_sample_selected)
             .map(|sample| sample.captured_at)
     }
 
@@ -2182,11 +2225,11 @@ impl App {
         rows: usize,
     ) -> Option<DetailsSampleViewState> {
         let slot = self.graph_slot(slot_index)?;
-        let samples = self.graph_slot_samples(slot);
-        if samples.is_empty() {
+        let sample_count = self.graph_slot_sample_count(slot);
+        if sample_count == 0 {
             return None;
         }
-        let selected = self.details_sample_selected.min(samples.len() - 1);
+        let selected = self.details_sample_selected.min(sample_count - 1);
         if Some(slot_index) == self.active_graph_index() {
             return Some(DetailsSampleViewState {
                 selected_index: selected,
@@ -2195,6 +2238,7 @@ impl App {
             });
         }
 
+        let samples = self.graph_slot_samples(slot);
         let selected_time = self.selected_details_sample_time();
         let selected_index = selected_time
             .and_then(|time| sample_index_nearest_time(&samples, time))
@@ -3255,11 +3299,10 @@ impl App {
         let Some(slot) = self.active_graph_slot() else {
             return;
         };
-        let samples = self.graph_slot_samples(slot);
         let Some(time_reference_at) = self.graph_time_reference_at() else {
             return;
         };
-        let Some(selected) = samples.get(self.details_sample_selected) else {
+        let Some(selected) = self.graph_slot_sample_at(slot, self.details_sample_selected) else {
             return;
         };
         let selected_age = time_reference_at
@@ -3286,7 +3329,7 @@ impl App {
 
     pub(crate) fn selected_sample_count(&self) -> usize {
         self.active_graph_slot()
-            .map(|slot| self.graph_slot_samples(slot).len())
+            .map(|slot| self.graph_slot_sample_count(slot))
             .unwrap_or(0)
     }
 
@@ -3371,8 +3414,7 @@ impl App {
 
     fn selected_ab_point(&self) -> Option<AbComparisonPoint> {
         let slot = self.active_graph_slot()?;
-        let samples = self.graph_slot_samples(slot);
-        let sample = samples.get(self.details_sample_selected)?;
+        let sample = self.graph_slot_sample_at(slot, self.details_sample_selected)?;
         sample.value?;
         Some(AbComparisonPoint {
             captured_at: sample.captured_at,

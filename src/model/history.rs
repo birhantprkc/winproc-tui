@@ -302,10 +302,17 @@ impl ProcessHistory {
     }
 
     pub(crate) fn samples_for(&self, identity: &ProcessIdentity) -> Vec<&ProcessSample> {
+        self.samples_for_iter(identity).collect()
+    }
+
+    pub(crate) fn samples_for_iter(
+        &self,
+        identity: &ProcessIdentity,
+    ) -> impl Iterator<Item = &ProcessSample> {
         self.samples
             .get(identity)
-            .map(|samples| samples.iter().collect())
-            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|samples| samples.iter())
     }
 
     pub(crate) fn time_range_for(
@@ -327,7 +334,14 @@ impl ProcessHistory {
             .find(|sample| sample.captured_at == captured_at)
     }
 
-    #[cfg(test)]
+    pub(crate) fn sample_at_index(
+        &self,
+        identity: &ProcessIdentity,
+        index: usize,
+    ) -> Option<&ProcessSample> {
+        self.samples.get(identity)?.get(index)
+    }
+
     pub(crate) fn sample_count_for(&self, identity: &ProcessIdentity) -> usize {
         self.samples
             .get(identity)

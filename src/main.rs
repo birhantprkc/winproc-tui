@@ -1196,6 +1196,82 @@ processes = ["api.exe", "worker.exe"]
     }
 
     #[test]
+    #[ignore = "manual performance probe; run with --ignored --nocapture"]
+    fn perf_long_history_graph_rendering() {
+        fn summarize(label: &str, durations: &[Duration]) {
+            let mut micros = durations
+                .iter()
+                .map(|duration| duration.as_micros() as u64)
+                .collect::<Vec<_>>();
+            micros.sort_unstable();
+            let percentile = |percent: usize| -> u64 {
+                let index = micros.len().saturating_sub(1).saturating_mul(percent) / 100;
+                micros[index]
+            };
+            let avg = micros.iter().sum::<u64>() / micros.len().max(1) as u64;
+            println!(
+                "{label}: avg={}us p50={}us p95={}us p99={}us max={}us",
+                avg,
+                percentile(50),
+                percentile(95),
+                percentile(99),
+                micros.last().copied().unwrap_or(0)
+            );
+        }
+
+        let screen = Rect::new(0, 0, 160, 80);
+        let mut app = make_test_app(1, 10);
+        app.set_screen_area(screen);
+        let identity = app.selected_visible_process_identity().unwrap();
+        for metric in [
+            DetailsMetric::Private,
+            DetailsMetric::Workset,
+            DetailsMetric::CpuPercent,
+            DetailsMetric::IoRead,
+        ] {
+            assert!(app.add_or_reveal_graph_source(
+                GraphSlot::process(identity.clone(), metric),
+                FocusedPanel::Processes,
+            ));
+        }
+        app.graph_slot_layout = GraphSlotLayout::TwoColumns;
+        app.show_samples_panel = true;
+        app.process_history = ProcessHistory::default();
+        let tracked_names = std::collections::HashSet::from([identity.name.to_ascii_lowercase()]);
+        let base = app.snapshot.captured_at - chrono::Duration::seconds(7_199);
+        for offset in 0..7_200_i64 {
+            let process = &mut app.snapshot.processes[0];
+            process.private_bytes = Some(offset as u64 * 1_024);
+            process.workset_bytes = Some(offset as u64 * 2_048);
+            process.cpu_percent = Some((offset % 100) as f64);
+            process.io_read_bytes_per_sec = Some(offset as u64 * 4_096);
+            app.snapshot.captured_at = base + chrono::Duration::seconds(offset);
+            app.process_history.record_snapshot(
+                app.snapshot.captured_at,
+                &app.snapshot.processes,
+                &tracked_names,
+            );
+        }
+        app.select_details_sample_latest();
+
+        let backend = TestBackend::new(screen.width, screen.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should be created");
+        terminal
+            .draw(|frame| ui::draw(frame, &app))
+            .expect("warmup render should succeed");
+
+        let mut render_durations = Vec::new();
+        for _ in 0..100 {
+            let start = Instant::now();
+            terminal
+                .draw(|frame| ui::draw(frame, &app))
+                .expect("render should succeed");
+            render_durations.push(start.elapsed());
+        }
+        summarize("graph-render slots=4 samples=7200", &render_durations);
+    }
+
+    #[test]
     fn process_ctrl_space_toggles_discontiguous_live_rows() {
         let mut app = make_test_app(5, 10);
 
