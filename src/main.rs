@@ -80,7 +80,7 @@ use samplers::open_files::{
     OpenFilesWorker,
 };
 #[cfg(test)]
-use samplers::pdh::map_process_counter_instances_to_pids;
+use samplers::pdh::{ProcessInstanceMap, map_process_counter_instances_to_pids};
 #[cfg(test)]
 use samplers::pdh::{normalize_process_cpu_percent, sum_optional_values};
 #[cfg(test)]
@@ -1477,6 +1477,107 @@ processes = ["api.exe", "worker.exe"]
         summarize("process-sort legacy rows=1000 passes=2", &legacy_durations);
         summarize(
             "process-sort current rows=1000 passes=1",
+            &current_durations,
+        );
+    }
+
+    #[test]
+    #[ignore = "manual performance probe; run with --ignored --nocapture"]
+    fn perf_process_counter_mapping() {
+        fn legacy_map<T: Copy>(
+            process_ids: Vec<(String, u64)>,
+            counter_values: Vec<(String, T)>,
+        ) -> std::collections::HashMap<u32, T> {
+            let mut values = std::collections::HashMap::new();
+            let mut counters_by_instance =
+                std::collections::HashMap::<String, std::collections::VecDeque<T>>::new();
+            for (instance_name, counter_value) in counter_values {
+                counters_by_instance
+                    .entry(instance_name)
+                    .or_default()
+                    .push_back(counter_value);
+            }
+            for (instance_name, pid_value) in process_ids {
+                if instance_name == "_Total" || pid_value == 0 || pid_value > u32::MAX as u64 {
+                    continue;
+                }
+                let Some(counter_value) = counters_by_instance
+                    .get_mut(&instance_name)
+                    .and_then(std::collections::VecDeque::pop_front)
+                else {
+                    continue;
+                };
+                values.insert(pid_value as u32, counter_value);
+            }
+            values
+        }
+
+        fn summarize(label: &str, durations: &[Duration]) {
+            let mut micros = durations
+                .iter()
+                .map(|duration| duration.as_micros() as u64)
+                .collect::<Vec<_>>();
+            micros.sort_unstable();
+            let percentile = |percent: usize| -> u64 {
+                let index = micros.len().saturating_sub(1).saturating_mul(percent) / 100;
+                micros[index]
+            };
+            let avg = micros.iter().sum::<u64>() / micros.len().max(1) as u64;
+            println!(
+                "{label}: avg={}us p50={}us p95={}us p99={}us max={}us",
+                avg,
+                percentile(50),
+                percentile(95),
+                percentile(99),
+                micros.last().copied().unwrap_or(0)
+            );
+        }
+
+        let process_ids = (1..=1_000_u64)
+            .map(|pid| (format!("process-{}", pid % 250), pid))
+            .collect::<Vec<_>>();
+        let counter_sets = (0..6_u64)
+            .map(|counter| {
+                process_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (name, _))| (name.clone(), counter * 10_000 + index as u64))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        let mut legacy_durations = Vec::new();
+        let mut current_durations = Vec::new();
+        for _ in 0..500 {
+            let mut legacy_process_ids = Some(process_ids.clone());
+            let legacy_counter_sets = counter_sets.clone();
+            let legacy_count = legacy_counter_sets.len();
+            let start = Instant::now();
+            for (index, counter_values) in legacy_counter_sets.into_iter().enumerate() {
+                let ids = if index + 1 == legacy_count {
+                    legacy_process_ids.take().unwrap()
+                } else {
+                    legacy_process_ids.as_ref().unwrap().clone()
+                };
+                std::hint::black_box(legacy_map(ids, counter_values));
+            }
+            legacy_durations.push(start.elapsed());
+
+            let current_process_ids = process_ids.clone();
+            let current_counter_sets = counter_sets.clone();
+            let start = Instant::now();
+            let process_instances = ProcessInstanceMap::new(current_process_ids);
+            for counter_values in current_counter_sets {
+                std::hint::black_box(process_instances.map_counter_values(counter_values));
+            }
+            current_durations.push(start.elapsed());
+        }
+        summarize(
+            "process-counter-map legacy instances=1000 counters=6",
+            &legacy_durations,
+        );
+        summarize(
+            "process-counter-map current instances=1000 counters=6",
             &current_durations,
         );
     }
@@ -13714,6 +13815,26 @@ processes = ["api.exe", "worker.exe"]
 
         assert_eq!(mapped.get(&1000), Some(&12.5));
         assert_eq!(mapped.get(&1001), Some(&25.0));
+    }
+
+    #[test]
+    fn process_counter_instance_map_is_reusable_across_counters() {
+        let instances =
+            ProcessInstanceMap::new(vec![("app".to_string(), 1000), ("app".to_string(), 1001)]);
+
+        let private_bytes = instances.map_counter_values(vec![
+            ("app".to_string(), 10_u64),
+            ("app".to_string(), 20_u64),
+        ]);
+        let handle_counts = instances.map_counter_values(vec![
+            ("app".to_string(), 30_u64),
+            ("app".to_string(), 40_u64),
+        ]);
+
+        assert_eq!(private_bytes.get(&1000), Some(&10));
+        assert_eq!(private_bytes.get(&1001), Some(&20));
+        assert_eq!(handle_counts.get(&1000), Some(&30));
+        assert_eq!(handle_counts.get(&1001), Some(&40));
     }
 
     #[test]

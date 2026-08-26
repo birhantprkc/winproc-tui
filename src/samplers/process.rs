@@ -1,17 +1,12 @@
 use std::{
     collections::HashMap,
     mem::{size_of, zeroed},
-    ptr::{null, null_mut},
 };
 
 use winapi::{
     shared::{minwindef::DWORD, ntdef::HANDLE},
     um::{
         handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
-        pdh::{
-            PDH_HCOUNTER, PDH_HQUERY, PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData,
-            PdhOpenQueryW,
-        },
         processthreadsapi::{GetProcessHandleCount, OpenProcess},
         tlhelp32::{
             CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
@@ -21,14 +16,7 @@ use winapi::{
     },
 };
 
-use crate::{
-    model::ProcessExtraMetrics,
-    platform::to_wide,
-    samplers::{
-        SamplingOptions,
-        pdh::{map_process_counter_instances_to_pids, pdh_ok, read_named_counter_items},
-    },
-};
+use crate::{model::ProcessExtraMetrics, samplers::SamplingOptions};
 
 const GR_GDIOBJECTS: DWORD = 0;
 const GR_USEROBJECTS: DWORD = 1;
@@ -115,19 +103,10 @@ fn merge_process_threads(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
 }
 
 fn merge_handle_counts(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
-    let mut missing_pids = Vec::new();
-
-    if let Some(pdh_counts) = collect_process_handle_counts() {
-        for (pid, metric) in extras.iter_mut() {
-            if let Some(handle_count) = pdh_counts.get(pid) {
-                metric.handle_count = Some(*handle_count);
-            } else {
-                missing_pids.push(*pid);
-            }
-        }
-    } else {
-        missing_pids.extend(extras.keys().copied());
-    }
+    let missing_pids = extras
+        .iter()
+        .filter_map(|(pid, metric)| metric.handle_count.is_none().then_some(*pid))
+        .collect::<Vec<_>>();
 
     for pid in missing_pids {
         let Some(metric) = extras.get_mut(&pid) else {
@@ -167,53 +146,5 @@ fn merge_gui_resource_counts(extras: &mut HashMap<u32, ProcessExtraMetrics>) {
 
             CloseHandle(handle);
         }
-    }
-}
-
-fn collect_process_handle_counts() -> Option<HashMap<u32, u64>> {
-    // SAFETY: all PDH output pointers target initialized local storage, temporary UTF-16 counter
-    // paths remain live for their synchronous add calls, and every successfully opened query is
-    // closed after the closure finishes, including early `None` returns inside it.
-    unsafe {
-        let mut query: PDH_HQUERY = null_mut();
-        if !pdh_ok(PdhOpenQueryW(null(), 0, &mut query)) {
-            return None;
-        }
-
-        let result = (|| {
-            let mut handle_count_counter: PDH_HCOUNTER = null_mut();
-            if !pdh_ok(PdhAddEnglishCounterW(
-                query,
-                to_wide("\\Process(*)\\Handle Count").as_ptr(),
-                0,
-                &mut handle_count_counter,
-            )) {
-                return None;
-            }
-
-            let mut process_id_counter: PDH_HCOUNTER = null_mut();
-            if !pdh_ok(PdhAddEnglishCounterW(
-                query,
-                to_wide("\\Process(*)\\ID Process").as_ptr(),
-                0,
-                &mut process_id_counter,
-            )) {
-                return None;
-            }
-
-            if !pdh_ok(PdhCollectQueryData(query)) {
-                return None;
-            }
-
-            let handle_counts = read_named_counter_items(handle_count_counter)?;
-            let process_ids = read_named_counter_items(process_id_counter)?;
-            Some(map_process_counter_instances_to_pids(
-                process_ids,
-                handle_counts,
-            ))
-        })();
-
-        PdhCloseQuery(query);
-        result
     }
 }

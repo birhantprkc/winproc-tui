@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::HashMap,
     mem::{align_of, size_of, zeroed},
     ptr::null_mut,
 };
@@ -22,37 +22,61 @@ const _: () = assert!(
     "the Windows x64 word buffer must align PDH counter items"
 );
 
+pub(crate) struct ProcessInstanceMap {
+    pids_by_instance: HashMap<String, ProcessInstancePids>,
+}
+
+struct ProcessInstancePids {
+    cursor_index: usize,
+    pids: Vec<u32>,
+}
+
+impl ProcessInstanceMap {
+    pub(crate) fn new(process_ids: Vec<(String, u64)>) -> Self {
+        let mut pids_by_instance = HashMap::<String, ProcessInstancePids>::new();
+        for (instance_name, pid_value) in process_ids {
+            if instance_name == "_Total" || pid_value == 0 || pid_value > u32::MAX as u64 {
+                continue;
+            }
+            let cursor_index = pids_by_instance.len();
+            pids_by_instance
+                .entry(instance_name)
+                .or_insert_with(|| ProcessInstancePids {
+                    cursor_index,
+                    pids: Vec::new(),
+                })
+                .pids
+                .push(pid_value as u32);
+        }
+        Self { pids_by_instance }
+    }
+
+    pub(crate) fn map_counter_values<T: Copy>(
+        &self,
+        counter_values: Vec<(String, T)>,
+    ) -> HashMap<u32, T> {
+        let mut values = HashMap::new();
+        let mut next_by_instance = vec![0_usize; self.pids_by_instance.len()];
+        for (instance_name, counter_value) in &counter_values {
+            let Some(instance) = self.pids_by_instance.get(instance_name) else {
+                continue;
+            };
+            let next = &mut next_by_instance[instance.cursor_index];
+            if let Some(pid) = instance.pids.get(*next) {
+                values.insert(*pid, *counter_value);
+            }
+            *next += 1;
+        }
+        values
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn map_process_counter_instances_to_pids<T: Copy>(
     process_ids: Vec<(String, u64)>,
     counter_values: Vec<(String, T)>,
-) -> std::collections::HashMap<u32, T> {
-    let mut values = std::collections::HashMap::new();
-    let mut counters_by_instance = std::collections::HashMap::<String, VecDeque<T>>::new();
-
-    for (instance_name, counter_value) in counter_values {
-        counters_by_instance
-            .entry(instance_name)
-            .or_default()
-            .push_back(counter_value);
-    }
-
-    for (instance_name, pid_value) in process_ids {
-        if instance_name == "_Total" || pid_value == 0 || pid_value > u32::MAX as u64 {
-            continue;
-        }
-
-        let Some(counter_values) = counters_by_instance.get_mut(&instance_name) else {
-            continue;
-        };
-
-        let Some(counter_value) = counter_values.pop_front() else {
-            continue;
-        };
-
-        values.insert(pid_value as u32, counter_value);
-    }
-
-    values
+) -> HashMap<u32, T> {
+    ProcessInstanceMap::new(process_ids).map_counter_values(counter_values)
 }
 
 pub(crate) fn read_named_counter_items(counter: PDH_HCOUNTER) -> Option<Vec<(String, u64)>> {
