@@ -23,7 +23,7 @@ use crate::{
         ProcessColumnWidths, ProcessEnvironmentError, ProcessEnvironmentReport, ProcessHistory,
         ProcessIdentity, ProcessInfo, ProcessModulesError, ProcessModulesReport, ProcessRow,
         ProcessSample, Snapshot, SortColumn, SortDirection, SortSpec, SystemHistory, SystemMetric,
-        TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY, sort_process_rows,
+        TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY, compare_process_rows, sort_process_rows,
     },
     samplers::{
         CollectSnapshotResult, SamplingRuntime, SamplingWorker,
@@ -2123,8 +2123,7 @@ impl App {
         match slot {
             GraphSlot::Process { identity, metric } => self
                 .display_process_history()
-                .samples_for(identity)
-                .into_iter()
+                .samples_for_iter(identity)
                 .map(|sample| GraphSample {
                     captured_at: sample.captured_at,
                     value: process_sample_metric_value(sample, *metric),
@@ -2132,8 +2131,7 @@ impl App {
                 .collect(),
             GraphSlot::System { metric } => self
                 .display_system_history()
-                .samples()
-                .iter()
+                .samples_iter()
                 .map(|sample| GraphSample {
                     captured_at: sample.captured_at,
                     value: sample.value(*metric),
@@ -2143,13 +2141,55 @@ impl App {
                 adapter_id, metric, ..
             } => self
                 .display_system_history()
-                .samples()
-                .iter()
+                .samples_iter()
                 .map(|sample| GraphSample {
                     captured_at: sample.captured_at,
                     value: sample.gpu_value(*adapter_id, *metric),
                 })
                 .collect(),
+        }
+    }
+
+    pub(crate) fn graph_slot_sample_count(&self, slot: &GraphSlot) -> usize {
+        match slot {
+            GraphSlot::Process { identity, .. } => {
+                self.display_process_history().sample_count_for(identity)
+            }
+            GraphSlot::System { .. } | GraphSlot::Gpu { .. } => self.display_system_history().len(),
+        }
+    }
+
+    pub(crate) fn graph_slot_sample_at(
+        &self,
+        slot: &GraphSlot,
+        index: usize,
+    ) -> Option<GraphSample> {
+        match slot {
+            GraphSlot::Process { identity, metric } => {
+                let sample = self
+                    .display_process_history()
+                    .sample_at_index(identity, index)?;
+                Some(GraphSample {
+                    captured_at: sample.captured_at,
+                    value: process_sample_metric_value(sample, *metric),
+                })
+            }
+            GraphSlot::System { metric } => {
+                let sample = self.display_system_history().sample_at_index(index)?;
+                Some(GraphSample {
+                    captured_at: sample.captured_at,
+                    value: sample.value(*metric),
+                })
+            }
+            GraphSlot::Gpu {
+                adapter_id, metric, ..
+            } => {
+                let sample = self.display_system_history().sample_at_index(index)?;
+                Some(GraphSample {
+                    captured_at: sample.captured_at,
+                    value: sample.gpu_value(*adapter_id, *metric),
+                })
+            }
         }
     }
 
@@ -2171,8 +2211,7 @@ impl App {
 
     pub(crate) fn selected_details_sample_time(&self) -> Option<DateTime<Local>> {
         let slot = self.active_graph_slot()?;
-        self.graph_slot_samples(slot)
-            .get(self.details_sample_selected)
+        self.graph_slot_sample_at(slot, self.details_sample_selected)
             .map(|sample| sample.captured_at)
     }
 
@@ -2182,11 +2221,11 @@ impl App {
         rows: usize,
     ) -> Option<DetailsSampleViewState> {
         let slot = self.graph_slot(slot_index)?;
-        let samples = self.graph_slot_samples(slot);
-        if samples.is_empty() {
+        let sample_count = self.graph_slot_sample_count(slot);
+        if sample_count == 0 {
             return None;
         }
-        let selected = self.details_sample_selected.min(samples.len() - 1);
+        let selected = self.details_sample_selected.min(sample_count - 1);
         if Some(slot_index) == self.active_graph_index() {
             return Some(DetailsSampleViewState {
                 selected_index: selected,
@@ -2195,6 +2234,7 @@ impl App {
             });
         }
 
+        let samples = self.graph_slot_samples(slot);
         let selected_time = self.selected_details_sample_time();
         let selected_index = selected_time
             .and_then(|time| sample_index_nearest_time(&samples, time))
@@ -3255,11 +3295,10 @@ impl App {
         let Some(slot) = self.active_graph_slot() else {
             return;
         };
-        let samples = self.graph_slot_samples(slot);
         let Some(time_reference_at) = self.graph_time_reference_at() else {
             return;
         };
-        let Some(selected) = samples.get(self.details_sample_selected) else {
+        let Some(selected) = self.graph_slot_sample_at(slot, self.details_sample_selected) else {
             return;
         };
         let selected_age = time_reference_at
@@ -3286,7 +3325,7 @@ impl App {
 
     pub(crate) fn selected_sample_count(&self) -> usize {
         self.active_graph_slot()
-            .map(|slot| self.graph_slot_samples(slot).len())
+            .map(|slot| self.graph_slot_sample_count(slot))
             .unwrap_or(0)
     }
 
@@ -3371,8 +3410,7 @@ impl App {
 
     fn selected_ab_point(&self) -> Option<AbComparisonPoint> {
         let slot = self.active_graph_slot()?;
-        let samples = self.graph_slot_samples(slot);
-        let sample = samples.get(self.details_sample_selected)?;
+        let sample = self.graph_slot_sample_at(slot, self.details_sample_selected)?;
         sample.value?;
         Some(AbComparisonPoint {
             captured_at: sample.captured_at,
@@ -7055,20 +7093,21 @@ impl App {
         self.status = "Display paused".to_string();
     }
 
-    pub(crate) fn request_sample(&mut self) -> Result<()> {
+    pub(crate) fn request_sample(&mut self) -> Result<bool> {
         if self.activity() == AppActivity::LogView {
-            return Ok(());
+            return Ok(false);
         }
         if self.sampling_in_progress {
-            return Ok(());
+            return Ok(false);
         }
 
         self.sampling_worker.request_sample()?;
         self.sampling_in_progress = true;
-        if self.recording_session.is_some() {
+        let recording_spinner_changed = self.recording_session.is_some();
+        if recording_spinner_changed {
             self.recording_spinner_index = self.recording_spinner_index.wrapping_add(1);
         }
-        Ok(())
+        Ok(recording_spinner_changed)
     }
 
     pub(crate) fn poll_sample_results(&mut self) -> Result<bool> {
@@ -7410,7 +7449,6 @@ fn preserve_process_row_order(
     previous_rows: &[ProcessRow],
     sort: SortSpec,
 ) {
-    sort_process_rows(rows, sort);
     let previous_positions = previous_rows
         .iter()
         .enumerate()
@@ -7423,7 +7461,7 @@ fn preserve_process_row_order(
             (Some(left), Some(right)) => left.cmp(right),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
+            (None, None) => compare_process_rows(left, right, sort),
         }
     });
 }

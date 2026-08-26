@@ -618,28 +618,40 @@ impl Default for SortSpec {
 }
 
 pub(crate) fn sort_process_rows(rows: &mut [ProcessRow], sort: SortSpec) {
-    rows.sort_by(|left, right| {
-        let value_ordering = match (sort.column.has_value(left), sort.column.has_value(right)) {
-            (true, true) => {
-                let ordering = sort.column.compare_values(left, right);
-                match sort.direction {
-                    SortDirection::Asc => ordering,
-                    SortDirection::Desc => ordering.reverse(),
-                }
-            }
-            (true, false) => Ordering::Less,
-            (false, true) => Ordering::Greater,
-            (false, false) => Ordering::Equal,
-        };
+    rows.sort_by(|left, right| compare_process_rows(left, right, sort));
+}
 
-        value_ordering
-            .then_with(|| compare_process_names(&left.name, &right.name))
-            .then_with(|| left.pid.cmp(&right.pid))
-    });
+pub(crate) fn compare_process_rows(
+    left: &ProcessRow,
+    right: &ProcessRow,
+    sort: SortSpec,
+) -> Ordering {
+    let value_ordering = match (sort.column.has_value(left), sort.column.has_value(right)) {
+        (true, true) => {
+            let ordering = sort.column.compare_values(left, right);
+            match sort.direction {
+                SortDirection::Asc => ordering,
+                SortDirection::Desc => ordering.reverse(),
+            }
+        }
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (false, false) => Ordering::Equal,
+    };
+
+    value_ordering
+        .then_with(|| compare_process_names(&left.name, &right.name))
+        .then_with(|| left.pid.cmp(&right.pid))
 }
 
 fn compare_process_names(left: &str, right: &str) -> Ordering {
-    left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase())
+    for (left, right) in left.bytes().zip(right.bytes()) {
+        let ordering = left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase());
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+    left.len().cmp(&right.len())
 }
 
 fn compare_optional_u64(left: Option<u64>, right: Option<u64>) -> Ordering {
@@ -662,7 +674,7 @@ fn compare_optional_f64(left: Option<f64>, right: Option<f64>) -> Ordering {
 
 fn compare_optional_strings(left: Option<&str>, right: Option<&str>) -> Ordering {
     match (left, right) {
-        (Some(left), Some(right)) => left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase()),
+        (Some(left), Some(right)) => compare_process_names(left, right),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
         (None, None) => Ordering::Equal,

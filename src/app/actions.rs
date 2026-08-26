@@ -2519,7 +2519,7 @@ impl App {
         };
         let total = self
             .graph_slot(slot_index)
-            .map(|slot| self.graph_slot_samples(slot).len())
+            .map(|slot| self.graph_slot_sample_count(slot))
             .unwrap_or(0);
         let Some(index) = sample_row_index_at(area, y, view_state.offset, total, rows) else {
             return;
@@ -2777,7 +2777,7 @@ fn samples_scrollbar_area_at(
     );
     let total = app
         .active_graph_slot()
-        .map(|slot| app.graph_slot_samples(slot).len())?;
+        .map(|slot| app.graph_slot_sample_count(slot))?;
     let scrollbar = samples_scrollbar_area_for_screen(samples, total, rows)?;
     contains_point(scrollbar, x, y).then_some((index, scrollbar))
 }

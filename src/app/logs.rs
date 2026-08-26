@@ -1322,19 +1322,35 @@ mod tests {
         assert_eq!(loaded.snapshot.gpu_adapters[0].encode.engine_count, 2);
         assert_eq!(loaded.system_history.len(), 1);
         assert_eq!(
-            loaded.system_history.samples()[0].value(SystemMetric::ModifiedMemory),
+            loaded
+                .system_history
+                .sample_at_index(0)
+                .unwrap()
+                .value(SystemMetric::ModifiedMemory),
             Some(750.0)
         );
         assert_eq!(
-            loaded.system_history.samples()[0].value(SystemMetric::PagesOutput),
+            loaded
+                .system_history
+                .sample_at_index(0)
+                .unwrap()
+                .value(SystemMetric::PagesOutput),
             Some(7.0)
         );
         assert_eq!(
-            loaded.system_history.samples()[0].value(SystemMetric::CpuAverage),
+            loaded
+                .system_history
+                .sample_at_index(0)
+                .unwrap()
+                .value(SystemMetric::CpuAverage),
             Some(37.0)
         );
         assert_eq!(
-            loaded.system_history.samples()[0].value(SystemMetric::ProcessCount),
+            loaded
+                .system_history
+                .sample_at_index(0)
+                .unwrap()
+                .value(SystemMetric::ProcessCount),
             Some(214.0)
         );
         assert_eq!(loaded.snapshot.processes[0].private_bytes, None);

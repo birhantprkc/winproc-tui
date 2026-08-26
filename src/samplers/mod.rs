@@ -270,20 +270,6 @@ fn collect_snapshot(
         dotnet_runtime_sampler.reconcile_and_apply(&mut processes);
     }
 
-    processes.sort_by(|left, right| {
-        right
-            .workset_bytes
-            .unwrap_or(0)
-            .cmp(&left.workset_bytes.unwrap_or(0))
-            .then_with(|| {
-                right
-                    .private_bytes
-                    .unwrap_or(0)
-                    .cmp(&left.private_bytes.unwrap_or(0))
-            })
-            .then_with(|| left.name.cmp(&right.name))
-    });
-
     let performance = collect_performance_info();
     let total_memory = performance
         .physical_total_bytes

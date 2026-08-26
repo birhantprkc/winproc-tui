@@ -12,7 +12,7 @@ use winapi::um::pdh::{
 use crate::{model::ProcessExtraMetrics, platform::to_wide};
 
 use super::pdh::{
-    add_optional_pdh_counter, ensure_pdh_success, map_process_counter_instances_to_pids,
+    ProcessInstanceMap, add_optional_pdh_counter, ensure_pdh_success,
     normalize_process_cpu_percent, pdh_ok, read_named_counter_double_items,
     read_named_counter_items, read_optional_named_counter_values, read_optional_pdh_double_value,
     read_optional_pdh_large_value, read_pdh_large_value, sum_optional_values,
@@ -50,6 +50,7 @@ pub(crate) struct ProcessCounterSampler {
     private_counter: Option<PDH_HCOUNTER>,
     working_set_counter: Option<PDH_HCOUNTER>,
     working_set_private_counter: Option<PDH_HCOUNTER>,
+    handle_count_counter: Option<PDH_HCOUNTER>,
     io_read_counter: Option<PDH_HCOUNTER>,
     io_write_counter: Option<PDH_HCOUNTER>,
     dotnet_process_id_counter: Option<PDH_HCOUNTER>,
@@ -378,6 +379,8 @@ impl ProcessCounterSampler {
                 add_optional_pdh_counter(query_handle, "\\Process(*)\\Working Set");
             let working_set_private_counter =
                 add_optional_pdh_counter(query_handle, "\\Process(*)\\Working Set - Private");
+            let handle_count_counter =
+                add_optional_pdh_counter(query_handle, "\\Process(*)\\Handle Count");
             let io_read_counter =
                 add_optional_pdh_counter(query_handle, "\\Process(*)\\IO Read Bytes/sec");
             let io_write_counter =
@@ -406,6 +409,7 @@ impl ProcessCounterSampler {
                 private_counter,
                 working_set_counter,
                 working_set_private_counter,
+                handle_count_counter,
                 io_read_counter,
                 io_write_counter,
                 dotnet_process_id_counter,
@@ -433,11 +437,12 @@ impl ProcessCounterSampler {
             return std::collections::HashMap::new();
         };
 
+        let process_instances = ProcessInstanceMap::new(process_ids);
         let mut metrics = std::collections::HashMap::<u32, ProcessExtraMetrics>::new();
         if let Some(cpu_counter) = self.cpu_counter
             && let Some(cpu_items) = read_named_counter_double_items(cpu_counter)
         {
-            let cpu_by_pid = map_process_counter_instances_to_pids(process_ids.clone(), cpu_items);
+            let cpu_by_pid = process_instances.map_counter_values(cpu_items);
             for (pid, cpu_percent) in cpu_by_pid {
                 metrics.entry(pid).or_default().cpu_percent =
                     normalize_process_cpu_percent(cpu_percent, logical_processor_count);
@@ -446,19 +451,19 @@ impl ProcessCounterSampler {
 
         self.merge_u64_counter(
             &mut metrics,
-            process_ids.clone(),
+            &process_instances,
             self.private_counter,
             |metric, value| metric.private_bytes = Some(value),
         );
         self.merge_u64_counter(
             &mut metrics,
-            process_ids.clone(),
+            &process_instances,
             self.working_set_counter,
             |metric, value| metric.workset_bytes = Some(value),
         );
         self.merge_u64_counter(
             &mut metrics,
-            process_ids.clone(),
+            &process_instances,
             self.working_set_private_counter,
             |metric, value| metric.workset_private_bytes = Some(value),
         );
@@ -468,13 +473,19 @@ impl ProcessCounterSampler {
         }
         self.merge_u64_counter(
             &mut metrics,
-            process_ids.clone(),
+            &process_instances,
+            self.handle_count_counter,
+            |metric, value| metric.handle_count = Some(value),
+        );
+        self.merge_u64_counter(
+            &mut metrics,
+            &process_instances,
             self.io_read_counter,
             |metric, value| metric.io_read_bytes_per_sec = Some(value),
         );
         self.merge_u64_counter(
             &mut metrics,
-            process_ids,
+            &process_instances,
             self.io_write_counter,
             |metric, value| metric.io_write_bytes_per_sec = Some(value),
         );
@@ -483,27 +494,28 @@ impl ProcessCounterSampler {
             .dotnet_process_id_counter
             .and_then(read_named_counter_items)
         {
-            self.merge_dotnet_u64_counter(
+            let dotnet_instances = ProcessInstanceMap::new(dotnet_pids);
+            self.merge_u64_counter(
                 &mut metrics,
-                dotnet_pids.clone(),
+                &dotnet_instances,
                 self.dotnet_heap_counter,
                 |metric, value| metric.dotnet_heap_bytes = Some(value),
             );
-            self.merge_dotnet_u64_counter(
+            self.merge_u64_counter(
                 &mut metrics,
-                dotnet_pids.clone(),
+                &dotnet_instances,
                 self.dotnet_gen1_heap_counter,
                 |metric, value| metric.dotnet_gc_gen1_heap_bytes = Some(value),
             );
-            self.merge_dotnet_u64_counter(
+            self.merge_u64_counter(
                 &mut metrics,
-                dotnet_pids.clone(),
+                &dotnet_instances,
                 self.dotnet_gen2_heap_counter,
                 |metric, value| metric.dotnet_gc_gen2_heap_bytes = Some(value),
             );
-            self.merge_dotnet_u64_counter(
+            self.merge_u64_counter(
                 &mut metrics,
-                dotnet_pids,
+                &dotnet_instances,
                 self.dotnet_loh_counter,
                 |metric, value| metric.dotnet_gc_loh_bytes = Some(value),
             );
@@ -515,7 +527,7 @@ impl ProcessCounterSampler {
     fn merge_u64_counter(
         &self,
         metrics: &mut std::collections::HashMap<u32, ProcessExtraMetrics>,
-        process_ids: Vec<(String, u64)>,
+        process_instances: &ProcessInstanceMap,
         counter: Option<PDH_HCOUNTER>,
         apply: impl Fn(&mut ProcessExtraMetrics, u64),
     ) {
@@ -526,26 +538,7 @@ impl ProcessCounterSampler {
             return;
         };
 
-        for (pid, value) in map_process_counter_instances_to_pids(process_ids, items) {
-            apply(metrics.entry(pid).or_default(), value);
-        }
-    }
-
-    fn merge_dotnet_u64_counter(
-        &self,
-        metrics: &mut std::collections::HashMap<u32, ProcessExtraMetrics>,
-        process_ids: Vec<(String, u64)>,
-        counter: Option<PDH_HCOUNTER>,
-        apply: impl Fn(&mut ProcessExtraMetrics, u64),
-    ) {
-        let Some(counter) = counter else {
-            return;
-        };
-        let Some(items) = read_named_counter_items(counter) else {
-            return;
-        };
-
-        for (pid, value) in map_process_counter_instances_to_pids(process_ids, items) {
+        for (pid, value) in process_instances.map_counter_values(items) {
             apply(metrics.entry(pid).or_default(), value);
         }
     }

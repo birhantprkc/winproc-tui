@@ -1,5 +1,5 @@
-use std::collections::HashSet;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use chrono::{DateTime, Local};
 
@@ -8,6 +8,79 @@ use crate::model::{ProcessRow, Snapshot};
 pub(crate) const GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY: usize = 120;
 pub(crate) const TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY: usize = 7_200;
 const SYSTEM_HISTORY_SAMPLE_CAPACITY: usize = TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY;
+const HISTORY_CHUNK_CAPACITY: usize = 64;
+
+#[derive(Debug, Clone)]
+struct ChunkedHistory<T> {
+    chunks: VecDeque<Arc<Vec<T>>>,
+    len: usize,
+}
+
+impl<T> Default for ChunkedHistory<T> {
+    fn default() -> Self {
+        Self {
+            chunks: VecDeque::new(),
+            len: 0,
+        }
+    }
+}
+
+impl<T: Clone> ChunkedHistory<T> {
+    fn push_back(&mut self, value: T) {
+        if let Some(chunk) = self.chunks.back_mut()
+            && chunk.len() < HISTORY_CHUNK_CAPACITY
+        {
+            Arc::make_mut(chunk).push(value);
+        } else {
+            self.chunks.push_back(Arc::new(vec![value]));
+        }
+        self.len += 1;
+    }
+
+    fn remove_front(&mut self, mut count: usize) {
+        count = count.min(self.len);
+        self.len -= count;
+        while count > 0 {
+            let front_len = self.chunks.front().map(|chunk| chunk.len()).unwrap_or(0);
+            if count >= front_len {
+                count -= front_len;
+                self.chunks.pop_front();
+            } else {
+                Arc::make_mut(self.chunks.front_mut().expect("front chunk exists")).drain(0..count);
+                count = 0;
+            }
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        self.chunks.iter().flat_map(|chunk| chunk.iter())
+    }
+
+    fn get(&self, mut index: usize) -> Option<&T> {
+        if index >= self.len {
+            return None;
+        }
+        for chunk in &self.chunks {
+            if index < chunk.len() {
+                return chunk.get(index);
+            }
+            index -= chunk.len();
+        }
+        None
+    }
+
+    fn front(&self) -> Option<&T> {
+        self.chunks.front()?.first()
+    }
+
+    fn back(&self) -> Option<&T> {
+        self.chunks.back()?.last()
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SystemMetric {
@@ -249,8 +322,8 @@ impl ProcessPeak {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ProcessHistory {
-    samples: HashMap<ProcessIdentity, VecDeque<ProcessSample>>,
-    peaks: HashMap<ProcessIdentity, ProcessPeak>,
+    samples: Arc<HashMap<ProcessIdentity, ChunkedHistory<ProcessSample>>>,
+    peaks: Arc<HashMap<ProcessIdentity, ProcessPeak>>,
 }
 
 impl ProcessHistory {
@@ -288,24 +361,32 @@ impl ProcessHistory {
     ) {
         let identity = ProcessIdentity::from_row(process);
         let sample = ProcessSample::from_row(captured_at, process);
-        self.peaks
+        Arc::make_mut(&mut self.peaks)
             .entry(identity.clone())
             .or_default()
             .record(&sample);
-        let samples = self.samples.entry(identity).or_default();
+        let samples = Arc::make_mut(&mut self.samples)
+            .entry(identity)
+            .or_default();
         samples.push_back(sample);
         if let Some(capacity) = capacity {
-            while samples.len() > capacity {
-                samples.pop_front();
-            }
+            samples.remove_front(samples.len().saturating_sub(capacity));
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn samples_for(&self, identity: &ProcessIdentity) -> Vec<&ProcessSample> {
+        self.samples_for_iter(identity).collect()
+    }
+
+    pub(crate) fn samples_for_iter(
+        &self,
+        identity: &ProcessIdentity,
+    ) -> impl Iterator<Item = &ProcessSample> {
         self.samples
             .get(identity)
-            .map(|samples| samples.iter().collect())
-            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|samples| samples.iter())
     }
 
     pub(crate) fn time_range_for(
@@ -327,11 +408,18 @@ impl ProcessHistory {
             .find(|sample| sample.captured_at == captured_at)
     }
 
-    #[cfg(test)]
+    pub(crate) fn sample_at_index(
+        &self,
+        identity: &ProcessIdentity,
+        index: usize,
+    ) -> Option<&ProcessSample> {
+        self.samples.get(identity)?.get(index)
+    }
+
     pub(crate) fn sample_count_for(&self, identity: &ProcessIdentity) -> usize {
         self.samples
             .get(identity)
-            .map(VecDeque::len)
+            .map(ChunkedHistory::len)
             .unwrap_or_default()
     }
 
@@ -355,13 +443,13 @@ impl ProcessHistory {
     pub(crate) fn prune_name_to_latest(&mut self, name: &str, retained_samples: usize) -> usize {
         let normalized = name.to_ascii_lowercase();
         let mut discarded = 0;
-        for (identity, samples) in &mut self.samples {
+        for (identity, samples) in Arc::make_mut(&mut self.samples) {
             if !identity.name.eq_ignore_ascii_case(&normalized) {
                 continue;
             }
             let excess = samples.len().saturating_sub(retained_samples);
             if excess > 0 {
-                samples.drain(0..excess);
+                samples.remove_front(excess);
                 discarded += excess;
             }
         }
@@ -373,14 +461,13 @@ impl ProcessHistory {
         retained: &HashSet<ProcessIdentity>,
         recent_after: DateTime<Local>,
     ) {
-        self.samples.retain(|identity, samples| {
+        Arc::make_mut(&mut self.samples).retain(|identity, samples| {
             retained.contains(identity)
                 || samples
                     .back()
                     .is_some_and(|sample| sample.captured_at > recent_after)
         });
-        self.peaks
-            .retain(|identity, _| self.samples.contains_key(identity));
+        Arc::make_mut(&mut self.peaks).retain(|identity, _| self.samples.contains_key(identity));
     }
 
     pub(crate) fn peak_for(&self, identity: &ProcessIdentity) -> Option<&ProcessPeak> {
@@ -389,7 +476,7 @@ impl ProcessHistory {
 
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        self.samples.values().map(VecDeque::len).sum()
+        self.samples.values().map(ChunkedHistory::len).sum()
     }
 
     #[cfg(test)]
@@ -504,43 +591,41 @@ impl SystemSample {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SystemHistory {
-    samples: Vec<SystemSample>,
+    samples: Arc<ChunkedHistory<SystemSample>>,
 }
 
 impl SystemHistory {
     pub(crate) fn record_snapshot(&mut self, snapshot: &Snapshot) {
-        self.samples.push(SystemSample::from_snapshot(snapshot));
+        Arc::make_mut(&mut self.samples).push_back(SystemSample::from_snapshot(snapshot));
         self.prune();
     }
 
     pub(crate) fn record_snapshot_unbounded(&mut self, snapshot: &Snapshot) {
-        self.samples.push(SystemSample::from_snapshot(snapshot));
+        Arc::make_mut(&mut self.samples).push_back(SystemSample::from_snapshot(snapshot));
     }
 
-    pub(crate) fn samples(&self) -> &[SystemSample] {
-        &self.samples
+    pub(crate) fn samples_iter(&self) -> impl Iterator<Item = &SystemSample> {
+        self.samples.iter()
+    }
+
+    pub(crate) fn sample_at_index(&self, index: usize) -> Option<&SystemSample> {
+        self.samples.get(index)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.samples.len()
     }
 
     pub(crate) fn time_range(&self) -> Option<(DateTime<Local>, DateTime<Local>)> {
         Some((
-            self.samples.first()?.captured_at,
-            self.samples.last()?.captured_at,
+            self.samples.front()?.captured_at,
+            self.samples.back()?.captured_at,
         ))
     }
 
     fn prune(&mut self) {
-        let excess = self
-            .samples
-            .len()
-            .saturating_sub(SYSTEM_HISTORY_SAMPLE_CAPACITY);
-        if excess > 0 {
-            self.samples.drain(0..excess);
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.samples.len()
+        let excess = self.len().saturating_sub(SYSTEM_HISTORY_SAMPLE_CAPACITY);
+        Arc::make_mut(&mut self.samples).remove_front(excess);
     }
 }
 
@@ -894,7 +979,10 @@ mod tests {
 
         assert_eq!(history.len(), SYSTEM_HISTORY_SAMPLE_CAPACITY);
         assert_eq!(
-            history.samples()[0].value(SystemMetric::PhysicalMemory),
+            history
+                .sample_at_index(0)
+                .unwrap()
+                .value(SystemMetric::PhysicalMemory),
             Some(1.0)
         );
     }
