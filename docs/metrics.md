@@ -288,6 +288,7 @@ The one-second GPU-memory cadence was validated with a local Windows benchmark u
 
 Process history identity consists of PID, process name, and start time.
 When start time is available, it is included in the identity to avoid mixing history after PID reuse.
+Live keeps at most two ordinary identity histories per case-insensitive process name, and each retained identity keeps its full sample capacity from the table above. Current identities normally occupy those newest-generation slots; if more than two same-name processes are concurrently live, all remain available. Identities referenced by DISPLAY PAUSED, Graphs, or Process Info are also protected and can temporarily exceed the ordinary limit. Recording and loaded Log-view histories are not subject to this Live generation limit.
 
 ## Display Formats
 

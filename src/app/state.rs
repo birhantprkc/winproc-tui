@@ -7250,56 +7250,49 @@ impl App {
     }
 
     fn prune_stale_process_state(&mut self) {
-        let mut retained_identities = self
+        let mut protected_identities = self
             .snapshot
             .processes
             .iter()
             .map(ProcessIdentity::from_row)
             .collect::<HashSet<_>>();
         if let Some(paused) = &self.paused_display {
-            retained_identities.extend(
+            protected_identities.extend(
                 paused
                     .snapshot
                     .processes
                     .iter()
                     .map(ProcessIdentity::from_row),
             );
-            retained_identities.extend(paused.exited_tracked_rows.keys().cloned());
+            protected_identities.extend(paused.exited_tracked_rows.keys().cloned());
         }
-        retained_identities.extend(
+        protected_identities.extend(
             self.graph_entries
                 .iter()
                 .filter_map(|entry| entry.source.process_identity().cloned()),
         );
         if let Some(target) = &self.process_info_target {
-            retained_identities.insert(target.identity.clone());
+            protected_identities.insert(target.identity.clone());
         }
 
-        let mut latest_ghost_by_name = HashMap::<String, (ProcessIdentity, DateTime<Local>)>::new();
-        for (identity, row) in &self.exited_tracked_rows {
-            let normalized_name = identity.name.to_ascii_lowercase();
-            if !self.normalized_watch_names.contains(&normalized_name) {
-                continue;
-            }
-            let latest = latest_ghost_by_name
-                .entry(normalized_name)
-                .or_insert_with(|| (identity.clone(), row.exited_at));
-            if row.exited_at > latest.1 {
-                *latest = (identity.clone(), row.exited_at);
-            }
-        }
-        retained_identities.extend(
-            latest_ghost_by_name
-                .into_values()
-                .map(|(identity, _)| identity),
-        );
-
-        self.exited_tracked_rows
-            .retain(|identity, _| retained_identities.contains(identity));
+        let tracked_exit_candidates = self
+            .exited_tracked_rows
+            .iter()
+            .filter(|(identity, _)| {
+                self.normalized_watch_names
+                    .contains(&identity.name.to_ascii_lowercase())
+            })
+            .map(|(identity, row)| (identity.clone(), row.exited_at))
+            .collect::<HashMap<_, _>>();
         let recent_after = self.snapshot.captured_at
             - chrono::Duration::seconds(GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY as i64);
-        self.process_history
-            .retain_identities_or_recent(&retained_identities, recent_after);
+        let retained_identities = self.process_history.retain_live_generations(
+            &protected_identities,
+            &tracked_exit_candidates,
+            recent_after,
+        );
+        self.exited_tracked_rows
+            .retain(|identity, _| retained_identities.contains(identity));
     }
 
     fn refresh_tracked_live_identities(&mut self) {

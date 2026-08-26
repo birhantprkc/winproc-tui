@@ -39,14 +39,15 @@ Tracked process identities retain 7,200 samples, approximately two hours at the 
 
 Capacity alone is insufficient because frequent process restarts could leave many small identity maps. After every Live snapshot, pruning retains:
 
-- identities sampled within general Live retention;
-- current processes;
+- the two newest ordinary identities for each case-insensitive process name, selected from identities sampled within general Live retention and retained exits for tracked names;
+- every current process identity, including all concurrently live same-name instances;
 - Live and Ghost Row identities visible in a paused display;
-- the newest exited identity for each tracked name;
 - identities referenced by process Graphs;
 - the fixed target of an open Process Info dialog.
 
-Older exited or restarted identities are removed from both sample and peak maps using one retained-identity set. Loaded logs are reconstructed from recorded frames and do not use these Live-history capacities.
+The two-generation limit removes an entire older `ProcessIdentity`; it does not shorten the sample series of either retained generation. Current, paused-display, Graph, and Process Info protections can temporarily retain more than two identities for a name. For a tracked name, up to two exited identities may remain in internal Live state, while the Processes table continues to show only the newest one as its Ghost Row.
+
+Older exited or restarted identities are removed from both sample and peak maps using one retained-identity set. Recording writes every matching generation to the session log independently of this Live pruning. Loaded logs are reconstructed from recorded frames and do not use Live sample or generation capacities.
 
 ## Recording Boundary
 
@@ -60,4 +61,6 @@ Starting a Recording copies the working Tracking List into session-owned scope. 
 - Working-list changes must not overwrite saved definitions implicitly.
 - The virtual empty entry must never be persisted as a named definition.
 - History pruning must remove samples and peaks together.
+- Ordinary Live history must retain at most two complete generations per case-insensitive process name.
+- Concurrently live identities and explicit paused-display, Graph, or Process Info references must remain inspectable even when they exceed the ordinary generation limit.
 - A paused Ghost Row, registered process Graph, or open Process Info target must remain inspectable even when its identity would otherwise age out.

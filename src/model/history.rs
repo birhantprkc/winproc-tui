@@ -7,6 +7,7 @@ use crate::model::{ProcessRow, Snapshot};
 
 pub(crate) const GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY: usize = 120;
 pub(crate) const TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY: usize = 7_200;
+pub(crate) const LIVE_PROCESS_HISTORY_GENERATION_CAPACITY: usize = 2;
 const SYSTEM_HISTORY_SAMPLE_CAPACITY: usize = TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY;
 const HISTORY_CHUNK_CAPACITY: usize = 64;
 
@@ -456,18 +457,61 @@ impl ProcessHistory {
         discarded
     }
 
-    pub(crate) fn retain_identities_or_recent(
+    /// Retain the two newest ordinary generations per case-insensitive name while
+    /// preserving every explicitly protected identity and complete retained series.
+    pub(crate) fn retain_live_generations(
         &mut self,
-        retained: &HashSet<ProcessIdentity>,
+        protected: &HashSet<ProcessIdentity>,
+        tracked_exit_candidates: &HashMap<ProcessIdentity, DateTime<Local>>,
         recent_after: DateTime<Local>,
-    ) {
-        Arc::make_mut(&mut self.samples).retain(|identity, samples| {
-            retained.contains(identity)
-                || samples
-                    .back()
-                    .is_some_and(|sample| sample.captured_at > recent_after)
-        });
+    ) -> HashSet<ProcessIdentity> {
+        let mut candidates_by_name =
+            HashMap::<String, Vec<(ProcessIdentity, DateTime<Local>)>>::new();
+        for (identity, samples) in self.samples.iter() {
+            let Some(latest_sample) = samples.back() else {
+                continue;
+            };
+            let candidate_at = tracked_exit_candidates.get(identity).copied().or_else(|| {
+                (protected.contains(identity) || latest_sample.captured_at > recent_after)
+                    .then_some(latest_sample.captured_at)
+            });
+            if let Some(candidate_at) = candidate_at {
+                candidates_by_name
+                    .entry(identity.name.to_ascii_lowercase())
+                    .or_default()
+                    .push((identity.clone(), candidate_at));
+            }
+        }
+        for (identity, candidate_at) in tracked_exit_candidates {
+            if !self.samples.contains_key(identity) {
+                candidates_by_name
+                    .entry(identity.name.to_ascii_lowercase())
+                    .or_default()
+                    .push((identity.clone(), *candidate_at));
+            }
+        }
+
+        let mut retained = protected.clone();
+        for candidates in candidates_by_name.values_mut() {
+            candidates.sort_by(|left, right| {
+                right
+                    .1
+                    .cmp(&left.1)
+                    .then_with(|| right.0.start_time.cmp(&left.0.start_time))
+                    .then_with(|| right.0.pid.cmp(&left.0.pid))
+                    .then_with(|| right.0.name.cmp(&left.0.name))
+            });
+            retained.extend(
+                candidates
+                    .iter()
+                    .take(LIVE_PROCESS_HISTORY_GENERATION_CAPACITY)
+                    .map(|(identity, _)| identity.clone()),
+            );
+        }
+
+        Arc::make_mut(&mut self.samples).retain(|identity, _| retained.contains(identity));
         Arc::make_mut(&mut self.peaks).retain(|identity, _| self.samples.contains_key(identity));
+        retained
     }
 
     pub(crate) fn peak_for(&self, identity: &ProcessIdentity) -> Option<&ProcessPeak> {
@@ -826,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    fn process_history_retain_keeps_explicit_and_recent_identities() {
+    fn process_history_retain_live_generations_keeps_protected_and_recent_identities() {
         let now = Local::now();
         let retained = ProcessIdentity {
             pid: 1,
@@ -861,8 +905,9 @@ mod tests {
             &empty_tracked_names(),
         );
 
-        history.retain_identities_or_recent(
+        history.retain_live_generations(
             &HashSet::from([retained.clone()]),
+            &HashMap::new(),
             now - chrono::Duration::seconds(120),
         );
 
@@ -874,6 +919,98 @@ mod tests {
         assert!(history.peak_for(&recent).is_some());
         assert_eq!(history.sample_count_for(&stale), 0);
         assert!(history.peak_for(&stale).is_none());
+    }
+
+    #[test]
+    fn process_history_keeps_two_complete_same_name_generations() {
+        let now = Local::now();
+        let mut oldest = row(1, "app.exe", 10);
+        oldest.start_time = Some(100);
+        let oldest_identity = ProcessIdentity::from_row(&oldest);
+        let mut middle = row(2, "APP.EXE", 20);
+        middle.start_time = Some(200);
+        let middle_identity = ProcessIdentity::from_row(&middle);
+        let mut latest = row(3, "app.exe", 30);
+        latest.start_time = Some(300);
+        let latest_identity = ProcessIdentity::from_row(&latest);
+        let mut history = ProcessHistory::default();
+
+        for offset in 0..3 {
+            oldest.private_bytes = Some(10 + offset);
+            history.record_snapshot(
+                now + chrono::Duration::seconds(offset as i64),
+                &[oldest.clone()],
+                &empty_tracked_names(),
+            );
+        }
+        for offset in 0..4 {
+            middle.private_bytes = Some(20 + offset);
+            history.record_snapshot(
+                now + chrono::Duration::seconds(10 + offset as i64),
+                &[middle.clone()],
+                &empty_tracked_names(),
+            );
+        }
+        for offset in 0..5 {
+            latest.private_bytes = Some(30 + offset);
+            history.record_snapshot(
+                now + chrono::Duration::seconds(20 + offset as i64),
+                &[latest.clone()],
+                &empty_tracked_names(),
+            );
+        }
+
+        history.retain_live_generations(
+            &HashSet::new(),
+            &HashMap::new(),
+            now - chrono::Duration::seconds(120),
+        );
+
+        assert_eq!(history.identity_count(), 2);
+        assert_eq!(history.peak_count(), 2);
+        assert_eq!(history.sample_count_for(&oldest_identity), 0);
+        assert!(history.peak_for(&oldest_identity).is_none());
+        assert_eq!(history.sample_count_for(&middle_identity), 4);
+        assert_eq!(history.sample_count_for(&latest_identity), 5);
+        assert_eq!(
+            history.peak_for(&middle_identity).unwrap().private_bytes,
+            Some(23)
+        );
+        assert_eq!(
+            history.peak_for(&latest_identity).unwrap().private_bytes,
+            Some(34)
+        );
+    }
+
+    #[test]
+    fn process_history_keeps_protected_identity_beyond_generation_limit() {
+        let now = Local::now();
+        let mut history = ProcessHistory::default();
+        let mut identities = Vec::new();
+
+        for generation in 0..3_u32 {
+            let mut process = row(100 + generation, "app.exe", generation as u64);
+            process.start_time = Some(1_000 + u64::from(generation));
+            identities.push(ProcessIdentity::from_row(&process));
+            history.record_snapshot(
+                now + chrono::Duration::seconds(i64::from(generation)),
+                &[process],
+                &empty_tracked_names(),
+            );
+        }
+
+        history.retain_live_generations(
+            &HashSet::from([identities[0].clone()]),
+            &HashMap::new(),
+            now - chrono::Duration::seconds(120),
+        );
+
+        assert_eq!(history.identity_count(), 3);
+        assert!(
+            identities
+                .iter()
+                .all(|identity| history.sample_count_for(identity) == 1)
+        );
     }
 
     #[test]

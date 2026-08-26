@@ -13347,11 +13347,20 @@ processes = ["api.exe", "worker.exe"]
         let mut app = make_test_app_with_worker(1, 10, sampling_worker);
         app.snapshot.processes[0].name = "target.exe".to_string();
         app.add_selected_process_to_watch_list();
+        let first_identity = ProcessIdentity::from_row(&app.snapshot.processes[0]);
+        let captured_at = app.snapshot.captured_at;
+        app.process_history.record_snapshot(
+            captured_at,
+            &app.snapshot.processes,
+            &app.normalized_watch_names,
+        );
         app.sampling_in_progress = true;
 
+        let mut first_exit = test_snapshot(0);
+        first_exit.captured_at = captured_at + chrono::Duration::seconds(1);
         result_tx
             .send(CollectSnapshotResult {
-                snapshot: test_snapshot(0),
+                snapshot: first_exit,
                 warning: None,
             })
             .unwrap();
@@ -13359,9 +13368,11 @@ processes = ["api.exe", "worker.exe"]
 
         app.sampling_in_progress = true;
         let mut restarted = test_snapshot(1);
+        restarted.captured_at = captured_at + chrono::Duration::seconds(2);
         restarted.processes[0].name = "target.exe".to_string();
         restarted.processes[0].pid = 42;
         restarted.processes[0].start_time = Some(1_800_000_000);
+        let restarted_identity = ProcessIdentity::from_row(&restarted.processes[0]);
         result_tx
             .send(CollectSnapshotResult {
                 snapshot: restarted,
@@ -13371,9 +13382,37 @@ processes = ["api.exe", "worker.exe"]
         app.poll_sample_results().unwrap();
 
         app.sampling_in_progress = true;
+        let mut second_exit = test_snapshot(0);
+        second_exit.captured_at = captured_at + chrono::Duration::seconds(3);
         result_tx
             .send(CollectSnapshotResult {
-                snapshot: test_snapshot(0),
+                snapshot: second_exit,
+                warning: None,
+            })
+            .unwrap();
+        app.poll_sample_results().unwrap();
+
+        app.sampling_in_progress = true;
+        let mut restarted_again = test_snapshot(1);
+        restarted_again.captured_at = captured_at + chrono::Duration::seconds(4);
+        restarted_again.processes[0].name = "target.exe".to_string();
+        restarted_again.processes[0].pid = 43;
+        restarted_again.processes[0].start_time = Some(1_800_000_001);
+        let latest_identity = ProcessIdentity::from_row(&restarted_again.processes[0]);
+        result_tx
+            .send(CollectSnapshotResult {
+                snapshot: restarted_again,
+                warning: None,
+            })
+            .unwrap();
+        app.poll_sample_results().unwrap();
+
+        app.sampling_in_progress = true;
+        let mut third_exit = test_snapshot(0);
+        third_exit.captured_at = captured_at + chrono::Duration::seconds(5);
+        result_tx
+            .send(CollectSnapshotResult {
+                snapshot: third_exit,
                 warning: None,
             })
             .unwrap();
@@ -13384,11 +13423,14 @@ processes = ["api.exe", "worker.exe"]
             .iter()
             .filter(|entry| matches!(entry, VisibleProcessEntry::Ghost(_)))
             .count();
-        assert_eq!(app.exited_tracked_rows.len(), 1);
-        assert_eq!(app.process_history.identity_count(), 1);
-        assert_eq!(app.process_history.peak_count(), 1);
+        assert_eq!(app.exited_tracked_rows.len(), 2);
+        assert_eq!(app.process_history.identity_count(), 2);
+        assert_eq!(app.process_history.peak_count(), 2);
         assert_eq!(ghost_count, 1);
-        assert_eq!(app.visible_process_at(0).unwrap().pid, 42);
+        assert_eq!(app.visible_process_at(0).unwrap().pid, 43);
+        assert_eq!(app.process_history.sample_count_for(&first_identity), 0);
+        assert_eq!(app.process_history.sample_count_for(&restarted_identity), 1);
+        assert_eq!(app.process_history.sample_count_for(&latest_identity), 1);
     }
 
     #[test]
@@ -13593,6 +13635,7 @@ processes = ["api.exe", "worker.exe"]
         let mut app = make_test_app_with_worker(1, 10, sampling_worker);
         let captured_at = app.snapshot.captured_at;
         let mut first_identity = None;
+        let mut previous_identity = None;
         let mut latest_identity = None;
 
         for identity_index in 0..256_u32 {
@@ -13604,7 +13647,7 @@ processes = ["api.exe", "worker.exe"]
             next.processes[0].private_bytes = Some(u64::from(identity_index));
             let identity = ProcessIdentity::from_row(&next.processes[0]);
             first_identity.get_or_insert_with(|| identity.clone());
-            latest_identity = Some(identity);
+            previous_identity = latest_identity.replace(identity);
             app.sampling_in_progress = true;
             result_tx
                 .send(CollectSnapshotResult {
@@ -13616,23 +13659,52 @@ processes = ["api.exe", "worker.exe"]
         }
 
         let first_identity = first_identity.unwrap();
+        let previous_identity = previous_identity.unwrap();
         let latest_identity = latest_identity.unwrap();
-        assert_eq!(
-            app.process_history.identity_count(),
-            model::GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY
-        );
-        assert_eq!(
-            app.process_history.peak_count(),
-            model::GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY
-        );
-        assert_eq!(
-            app.process_history.len(),
-            model::GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY
-        );
+        assert_eq!(app.process_history.identity_count(), 2);
+        assert_eq!(app.process_history.peak_count(), 2);
+        assert_eq!(app.process_history.len(), 2);
         assert_eq!(app.process_history.sample_count_for(&first_identity), 0);
         assert!(app.process_history.peak_for(&first_identity).is_none());
+        assert_eq!(app.process_history.sample_count_for(&previous_identity), 1);
+        assert!(app.process_history.peak_for(&previous_identity).is_some());
         assert_eq!(app.process_history.sample_count_for(&latest_identity), 1);
         assert!(app.process_history.peak_for(&latest_identity).is_some());
+    }
+
+    #[test]
+    fn concurrent_same_name_live_processes_are_all_retained() {
+        let (sampling_worker, _request_rx, result_tx) = SamplingWorker::test_pair();
+        let mut app = make_test_app_with_worker(1, 10, sampling_worker);
+        let mut next = test_snapshot(3);
+        next.captured_at = app.snapshot.captured_at + chrono::Duration::seconds(1);
+        for (index, process) in next.processes.iter_mut().enumerate() {
+            process.name = "worker.exe".to_string();
+            process.pid = 1_000 + index as u32;
+            process.start_time = Some(1_800_000_000 + index as u64);
+        }
+        let identities = next
+            .processes
+            .iter()
+            .map(ProcessIdentity::from_row)
+            .collect::<Vec<_>>();
+
+        app.sampling_in_progress = true;
+        result_tx
+            .send(CollectSnapshotResult {
+                snapshot: next,
+                warning: None,
+            })
+            .unwrap();
+        app.poll_sample_results().unwrap();
+
+        assert_eq!(app.process_history.identity_count(), 3);
+        assert_eq!(app.process_history.peak_count(), 3);
+        assert!(
+            identities
+                .iter()
+                .all(|identity| app.process_history.sample_count_for(identity) == 1)
+        );
     }
 
     #[test]
@@ -14784,7 +14856,14 @@ processes = ["api.exe", "worker.exe"]
         app.confirm_recording_path().unwrap();
         app.watch_list = vec!["other.exe".to_string()];
         app.normalized_watch_names = std::collections::HashSet::from(["other.exe".to_string()]);
-        app.write_current_recording_frame().unwrap();
+        let initial_captured_at = app.snapshot.captured_at;
+        for generation in 1..=2_u32 {
+            app.snapshot.captured_at =
+                initial_captured_at + chrono::Duration::seconds(i64::from(generation));
+            app.snapshot.processes[0].pid = 100 + generation;
+            app.snapshot.processes[0].start_time = Some(1_800_000_000 + u64::from(generation));
+            app.write_current_recording_frame().unwrap();
+        }
         app.stop_recording().unwrap();
 
         let lines = std::fs::read_to_string(&path).unwrap();
@@ -14805,8 +14884,10 @@ processes = ["api.exe", "worker.exe"]
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions.len(), 3);
         assert_eq!(definitions[0].2, "proc-0");
+        assert_eq!(definitions[1].1, 101);
+        assert_eq!(definitions[2].1, 102);
 
         let frames = records
             .iter()
@@ -14815,16 +14896,20 @@ processes = ["api.exe", "worker.exe"]
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(frames.len(), 2);
+        assert_eq!(frames.len(), 3);
         assert_eq!(
             frames[0].1.0[app::log_format::system_u64::PHYSICAL_MEMORY],
             Some(0)
         );
-        assert_eq!(frames[1].2[0].0, definitions[0].0);
+        assert_eq!(frames[0].2[0].0, definitions[0].0);
+        assert_eq!(frames[1].2[0].0, definitions[1].0);
+        assert_eq!(frames[2].2[0].0, definitions[2].0);
         assert!(matches!(
             records.last(),
             Some(app::log_format::V3Record::End(_))
         ));
+        let loaded = app::logs::load_log(&path, SortSpec::default()).unwrap();
+        assert_eq!(loaded.process_history.identity_count(), 3);
         let _ = std::fs::remove_file(path);
     }
 
