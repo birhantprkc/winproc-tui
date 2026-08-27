@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Margin, Rect},
     prelude::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Cell, Row, Table},
+    widgets::{Cell, Paragraph, Row, Table},
 };
 
 use crate::{
@@ -149,6 +149,36 @@ pub(crate) fn draw_process_table(
         .filter(|selected| *selected < visible_processes.len());
     state.select(selected);
     frame.render_stateful_widget(table, table_area, &mut state);
+    draw_process_resize_handle(frame, layout, app, theme);
+}
+
+fn draw_process_resize_handle(
+    frame: &mut ratatui::Frame<'_>,
+    layout: ProcessTableLayout,
+    app: &App,
+    theme: Theme,
+) {
+    if !app.process_panel_resize_hovered && app.process_panel_resize_drag.is_none() {
+        return;
+    }
+    let Some(handle) = layout.resize_handle.filter(|area| !area.is_empty()) else {
+        return;
+    };
+    let marker = Rect::new(
+        handle.x.saturating_add(handle.width.saturating_sub(1) / 2),
+        handle.y,
+        1,
+        1,
+    );
+    frame.render_widget(
+        Paragraph::new("↕").style(
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.focus_surface)
+                .add_modifier(Modifier::BOLD),
+        ),
+        marker,
+    );
 }
 
 pub(crate) fn process_metric_column_index_at(

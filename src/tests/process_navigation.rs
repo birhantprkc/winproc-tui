@@ -1,9 +1,9 @@
 use super::support::{
     add_test_graph, assign_private_graph, find_text_position, left_click, make_test_app,
-    render_app_to_buffer, render_app_to_text, track_process_name,
+    mouse_move, render_app_to_buffer, render_app_to_text, track_process_name,
 };
 use crate::app;
-use crate::app::{DetailsMetric, FocusedPanel, GraphSlot};
+use crate::app::{DetailsMetric, FocusedPanel, GraphSlot, ProcessPanelHeight};
 use crate::model;
 use crate::model::{MetricColumn, SortColumn};
 use crate::ui;
@@ -11,7 +11,7 @@ use crate::ui::{
     details_graph_area_for_app, main_panel_areas, main_panel_areas_for_app,
     process_kill_dialog_area,
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 
@@ -1001,6 +1001,117 @@ fn dynamic_process_page_size_preserves_selection_and_clamps_offset() {
 }
 
 #[test]
+fn process_height_shortcuts_share_one_preference_across_workspace_focus() {
+    let screen = Rect::new(0, 0, 120, 60);
+
+    for focused_panel in [
+        FocusedPanel::Processes,
+        FocusedPanel::DetailsGraph,
+        FocusedPanel::DetailsSamples,
+    ] {
+        let mut app = make_test_app(30, 10);
+        assign_private_graph(&mut app);
+        app.focused_panel = focused_panel;
+        app::sync_layout_state(&mut app, screen);
+        assert_eq!(
+            main_panel_areas_for_app(screen, &app)
+                .processes
+                .body_capacity,
+            10
+        );
+
+        app.on_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE))
+            .unwrap();
+        app::sync_layout_state(&mut app, screen);
+        assert_eq!(app.process_panel_height, ProcessPanelHeight::Manual(11));
+        assert_eq!(
+            main_panel_areas_for_app(screen, &app)
+                .processes
+                .body_capacity,
+            11
+        );
+        assert_eq!(app.focused_panel, focused_panel);
+        assert_eq!(app.status, "Processes height: 11 rows");
+
+        app.on_key(KeyEvent::new(KeyCode::Char('H'), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(app.process_panel_height, ProcessPanelHeight::Manual(10));
+
+        app.on_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::SHIFT))
+            .unwrap();
+        assert_eq!(app.process_panel_height, ProcessPanelHeight::Manual(9));
+
+        app.on_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT))
+            .unwrap();
+        app::sync_layout_state(&mut app, screen);
+        assert_eq!(app.process_panel_height, ProcessPanelHeight::Auto);
+        assert_eq!(app.status, "Processes height: Auto");
+        assert_eq!(
+            main_panel_areas_for_app(screen, &app)
+                .processes
+                .body_capacity,
+            10
+        );
+    }
+}
+
+#[test]
+fn process_height_shortcuts_are_unavailable_when_graphs_are_hidden() {
+    let mut app = make_test_app(30, 10);
+
+    app.on_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE))
+        .unwrap();
+
+    assert_eq!(app.process_panel_height, ProcessPanelHeight::Auto);
+}
+
+#[test]
+fn manual_process_height_survives_content_clamps_and_graph_visibility() {
+    let mut app = make_test_app(30, 10);
+    assign_private_graph(&mut app);
+    app.process_panel_height = ProcessPanelHeight::Manual(14);
+    let screen = Rect::new(0, 0, 120, 60);
+
+    app::sync_layout_state(&mut app, screen);
+    assert_eq!(
+        main_panel_areas_for_app(screen, &app)
+            .processes
+            .body_capacity,
+        14
+    );
+
+    app.filter_text = "proc-0".to_string();
+    app.rebuild_visible_process_cache();
+    app::sync_layout_state(&mut app, screen);
+    assert_eq!(
+        main_panel_areas_for_app(screen, &app)
+            .processes
+            .body_capacity,
+        1
+    );
+    assert_eq!(app.process_panel_height, ProcessPanelHeight::Manual(14));
+
+    app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+        .unwrap();
+    app::sync_layout_state(&mut app, screen);
+    assert!(main_panel_areas_for_app(screen, &app).details.is_none());
+    assert_eq!(app.process_panel_height, ProcessPanelHeight::Manual(14));
+
+    app.filter_text.clear();
+    app.rebuild_visible_process_cache();
+    app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+        .unwrap();
+    app::sync_layout_state(&mut app, screen);
+    assert_eq!(
+        main_panel_areas_for_app(screen, &app)
+            .processes
+            .body_capacity,
+        14
+    );
+    assert_eq!(app.process_panel_height, ProcessPanelHeight::Manual(14));
+}
+
+#[test]
 fn dynamic_graph_and_samples_regions_recompute_on_resize() {
     let mut app = make_test_app(2, 10);
     assign_private_graph(&mut app);
@@ -1061,12 +1172,121 @@ fn mouse_selection_uses_dynamic_process_graph_boundary() {
         screen,
     );
     assert_eq!(app.process_table_state.selected(), Some(2));
+    assert!(app.process_panel_resize_drag.is_none());
 
     let graph = details_graph_area_for_app(screen, &app).unwrap();
     app.on_mouse(left_click(graph.x + 1, graph.y + 1), screen);
 
     assert_eq!(app.focused_panel, FocusedPanel::DetailsGraph);
     assert_eq!(app.process_table_state.selected(), Some(2));
+    assert!(app.process_panel_resize_drag.is_none());
+}
+
+#[test]
+fn process_graph_border_drag_updates_the_shared_height_preference() {
+    let mut app = make_test_app(30, 10);
+    assign_private_graph(&mut app);
+    let screen = Rect::new(0, 0, 120, 60);
+    app::sync_layout_state(&mut app, screen);
+    let panels = main_panel_areas_for_app(screen, &app);
+    let handle = panels
+        .processes
+        .resize_handle
+        .expect("visible Graphs should expose a resize handle");
+    let x = handle.x + handle.width / 2;
+
+    app.on_mouse(mouse_move(x, handle.y), screen);
+    assert!(app.process_panel_resize_hovered);
+    let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+    let marker_x = handle.x + handle.width.saturating_sub(1) / 2;
+    let marker = &buffer[(marker_x, handle.y)];
+    assert_eq!(marker.symbol(), "↕");
+    assert_eq!(marker.bg, app.theme().focus_surface);
+    assert!(marker.modifier.contains(Modifier::BOLD));
+
+    app.on_mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: handle.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        screen,
+    );
+    assert!(app.process_panel_resize_drag.is_some());
+    assert_eq!(app.focused_panel, FocusedPanel::Processes);
+
+    app.on_mouse(
+        MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: x,
+            row: handle.y + 3,
+            modifiers: KeyModifiers::NONE,
+        },
+        screen,
+    );
+    app::sync_layout_state(&mut app, screen);
+    assert_eq!(app.process_panel_height, ProcessPanelHeight::Manual(13));
+    assert_eq!(
+        main_panel_areas_for_app(screen, &app)
+            .processes
+            .body_capacity,
+        13
+    );
+    assert_eq!(app.status, "Processes height: 13 rows");
+
+    app.on_mouse(
+        MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: x,
+            row: handle.y + 3,
+            modifiers: KeyModifiers::NONE,
+        },
+        screen,
+    );
+    assert!(app.process_panel_resize_drag.is_none());
+}
+
+#[test]
+fn process_panel_resize_drag_ends_for_modals_and_terminal_resize() {
+    let mut app = make_test_app(30, 10);
+    assign_private_graph(&mut app);
+    let screen = Rect::new(0, 0, 120, 60);
+    app::sync_layout_state(&mut app, screen);
+    let handle = main_panel_areas_for_app(screen, &app)
+        .processes
+        .resize_handle
+        .unwrap();
+    let press = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: handle.x + 1,
+        row: handle.y,
+        modifiers: KeyModifiers::NONE,
+    };
+
+    app.on_mouse(press, screen);
+    assert!(app.process_panel_resize_drag.is_some());
+    app.on_key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE))
+        .unwrap();
+    assert!(app.show_help);
+    assert!(app.process_panel_resize_drag.is_none());
+
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+    app.on_mouse(press, screen);
+    assert!(app.process_panel_resize_drag.is_some());
+    app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+        .unwrap();
+    assert!(!app.show_details);
+    assert!(app.process_panel_resize_drag.is_none());
+
+    app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+        .unwrap();
+    app::sync_layout_state(&mut app, screen);
+    app.on_mouse(press, screen);
+    assert!(app.process_panel_resize_drag.is_some());
+    app::sync_layout_state(&mut app, Rect::new(0, 0, 120, 50));
+    assert!(app.process_panel_resize_drag.is_none());
 }
 
 #[test]

@@ -5,7 +5,9 @@ use ratatui::{
 
 use crate::{
     App,
-    app::{GRAPH_SLOT_MIN_HEIGHT, GRAPH_SLOT_MIN_WIDTH, GraphId, GraphSlotLayout},
+    app::{
+        GRAPH_SLOT_MIN_HEIGHT, GRAPH_SLOT_MIN_WIDTH, GraphId, GraphSlotLayout, ProcessPanelHeight,
+    },
 };
 
 pub(crate) const SYSTEM_PANEL_HEIGHT: u16 = 7;
@@ -32,7 +34,9 @@ pub(crate) const PROCESS_TABLE_MAX_HEIGHT: u16 = 13;
 pub(crate) struct ProcessTableLayout {
     pub(crate) area: Rect,
     pub(crate) page_size: usize,
+    pub(crate) body_capacity: usize,
     pub(crate) show_tracked_total: bool,
+    pub(crate) resize_handle: Option<Rect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,35 +104,51 @@ pub(crate) fn system_panel_area_for_screen(area: Rect) -> Rect {
 }
 
 pub(crate) fn main_panel_areas_for_app(area: Rect, app: &App) -> MainPanelAreas {
-    main_panel_areas(
+    main_panel_areas_with_height(
         area,
         app.show_details,
         app.visible_process_count(),
         app.has_visible_tracked_total_row(),
+        app.process_panel_height,
     )
 }
 
+#[cfg(test)]
 pub(crate) fn main_panel_areas(
     area: Rect,
     show_details: bool,
     visible_process_rows: usize,
     has_tracked_total: bool,
 ) -> MainPanelAreas {
+    main_panel_areas_with_height(
+        area,
+        show_details,
+        visible_process_rows,
+        has_tracked_total,
+        ProcessPanelHeight::Auto,
+    )
+}
+
+pub(crate) fn main_panel_areas_with_height(
+    area: Rect,
+    show_details: bool,
+    visible_process_rows: usize,
+    has_tracked_total: bool,
+    process_panel_height: ProcessPanelHeight,
+) -> MainPanelAreas {
     let screen = screen_layout(area);
     let sections = body_sections(screen[1]);
     let system = sections[0];
     if show_details {
         let lower_area = sections[1];
-        let preferred_process_height =
-            process_table_required_height(visible_process_rows, has_tracked_total);
-        let minimum_process_height = if visible_process_rows > 0 {
-            PROCESS_TABLE_CHROME_HEIGHT.saturating_add(1)
-        } else {
-            PROCESS_TABLE_CHROME_HEIGHT
-        };
+        let preferred_process_height = process_table_required_height(
+            visible_process_rows,
+            has_tracked_total,
+            process_panel_height,
+        );
         let available_for_process = lower_area.height.saturating_sub(GRAPH_WORKSPACE_MIN_HEIGHT);
         let process_height = preferred_process_height
-            .min(available_for_process.max(minimum_process_height))
+            .min(available_for_process)
             .min(lower_area.height);
         let processes_area =
             Rect::new(lower_area.x, lower_area.y, lower_area.width, process_height);
@@ -140,34 +160,63 @@ pub(crate) fn main_panel_areas(
         );
         MainPanelAreas {
             system,
-            processes: process_table_layout(processes_area, has_tracked_total),
+            processes: process_table_layout(
+                processes_area,
+                has_tracked_total,
+                process_resize_handle(processes_area, details_area),
+            ),
             details: Some(details_area),
         }
     } else {
         MainPanelAreas {
             system,
-            processes: process_table_layout(sections[1], has_tracked_total),
+            processes: process_table_layout(sections[1], has_tracked_total, None),
             details: None,
         }
     }
 }
 
-fn process_table_required_height(visible_process_rows: usize, has_tracked_total: bool) -> u16 {
-    let max_rows = PROCESS_TABLE_MAX_HEIGHT.saturating_sub(PROCESS_TABLE_CHROME_HEIGHT) as usize;
-    let rendered_rows = visible_process_rows
-        .saturating_add(usize::from(has_tracked_total))
-        .min(max_rows);
+fn process_table_required_height(
+    visible_process_rows: usize,
+    has_tracked_total: bool,
+    preference: ProcessPanelHeight,
+) -> u16 {
+    let content_rows = visible_process_rows.saturating_add(usize::from(has_tracked_total));
+    let preferred_rows = match preference {
+        ProcessPanelHeight::Auto => {
+            PROCESS_TABLE_MAX_HEIGHT.saturating_sub(PROCESS_TABLE_CHROME_HEIGHT) as usize
+        }
+        ProcessPanelHeight::Manual(rows) => usize::from(rows.max(1)),
+    };
+    let rendered_rows = content_rows.min(preferred_rows);
     PROCESS_TABLE_CHROME_HEIGHT.saturating_add(rendered_rows as u16)
 }
 
-fn process_table_layout(area: Rect, has_tracked_total: bool) -> ProcessTableLayout {
+fn process_table_layout(
+    area: Rect,
+    has_tracked_total: bool,
+    resize_handle: Option<Rect>,
+) -> ProcessTableLayout {
     let row_capacity = process_table_page_size(area);
     let show_tracked_total = has_tracked_total && row_capacity > 0;
     ProcessTableLayout {
         area,
         page_size: row_capacity.saturating_sub(usize::from(show_tracked_total)),
+        body_capacity: row_capacity,
         show_tracked_total,
+        resize_handle,
     }
+}
+
+fn process_resize_handle(processes: Rect, details: Rect) -> Option<Rect> {
+    (!processes.is_empty() && !details.is_empty()).then(|| {
+        Rect::new(
+            processes.x,
+            processes.bottom().saturating_sub(1),
+            processes.width,
+            1,
+        )
+    })
 }
 
 pub(crate) fn details_shared_controls_area(area: Rect) -> Rect {
@@ -683,6 +732,84 @@ mod tests {
         assert_eq!(
             tall.details.unwrap().height - short.details.unwrap().height,
             15
+        );
+    }
+
+    #[test]
+    fn manual_process_height_can_exceed_the_automatic_cap() {
+        let screen = Rect::new(0, 0, 120, 60);
+        let automatic = main_panel_areas(screen, true, 30, false);
+        let manual =
+            main_panel_areas_with_height(screen, true, 30, false, ProcessPanelHeight::Manual(20));
+
+        assert_eq!(automatic.processes.body_capacity, 10);
+        assert_eq!(manual.processes.body_capacity, 20);
+        assert_eq!(
+            manual.processes.area.height,
+            PROCESS_TABLE_CHROME_HEIGHT + 20
+        );
+        assert!(manual.details.unwrap().height >= GRAPH_WORKSPACE_MIN_HEIGHT);
+    }
+
+    #[test]
+    fn manual_process_height_does_not_create_blank_body_rows() {
+        let panels = main_panel_areas_with_height(
+            Rect::new(0, 0, 120, 60),
+            true,
+            2,
+            false,
+            ProcessPanelHeight::Manual(20),
+        );
+
+        assert_eq!(panels.processes.body_capacity, 2);
+        assert_eq!(panels.processes.page_size, 2);
+    }
+
+    #[test]
+    fn manual_process_height_clamps_without_changing_the_preference() {
+        let preference = ProcessPanelHeight::Manual(20);
+        let short =
+            main_panel_areas_with_height(Rect::new(0, 0, 120, 25), true, 30, false, preference);
+        let tall =
+            main_panel_areas_with_height(Rect::new(0, 0, 120, 60), true, 30, false, preference);
+
+        assert_eq!(short.details.unwrap().height, GRAPH_WORKSPACE_MIN_HEIGHT);
+        assert!(short.processes.body_capacity < 20);
+        assert_eq!(tall.processes.body_capacity, 20);
+    }
+
+    #[test]
+    fn preferred_body_capacity_includes_the_tracked_total_row() {
+        let panels = main_panel_areas_with_height(
+            Rect::new(0, 0, 120, 60),
+            true,
+            3,
+            true,
+            ProcessPanelHeight::Manual(3),
+        );
+
+        assert_eq!(panels.processes.body_capacity, 3);
+        assert_eq!(panels.processes.page_size, 2);
+        assert!(panels.processes.show_tracked_total);
+    }
+
+    #[test]
+    fn process_resize_handle_is_the_shared_bottom_border() {
+        let panels = main_panel_areas(Rect::new(0, 0, 120, 60), true, 30, false);
+        let handle = panels
+            .processes
+            .resize_handle
+            .expect("visible Graphs should expose the shared resize border");
+
+        assert_eq!(handle.x, panels.processes.area.x);
+        assert_eq!(handle.width, panels.processes.area.width);
+        assert_eq!(handle.y, panels.processes.area.bottom() - 1);
+        assert_eq!(panels.details.unwrap().y, panels.processes.area.bottom());
+        assert!(
+            main_panel_areas(Rect::new(0, 0, 120, 60), false, 30, false)
+                .processes
+                .resize_handle
+                .is_none()
         );
     }
 

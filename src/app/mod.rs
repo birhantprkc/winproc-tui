@@ -57,6 +57,8 @@ pub(crate) use state::PROCESS_INFO_DEBOUNCE;
 pub(crate) use state::ProcessInfoFocus;
 pub(crate) use state::ProcessInfoTab;
 pub(crate) use state::ProcessLifecycle;
+pub(crate) use state::ProcessPanelHeight;
+pub(crate) use state::ProcessPanelResizeDrag;
 pub(crate) use state::ResourcePanel;
 #[cfg(test)]
 pub(crate) use state::SAMPLE_STALE_AFTER_SECONDS;
@@ -263,12 +265,14 @@ impl LoopTrace {
 pub(crate) fn sync_layout_state(app: &mut App, screen_area: Rect) {
     let resized = app.last_screen_area != screen_area;
     app.set_screen_area(screen_area);
+    app.cancel_process_panel_resize_if_unavailable();
     app.sync_graph_layout_visibility();
-    if resized {
+    let panels = main_panel_areas_for_app(screen_area, app);
+    let process_height_changed = app.process_panel_body_capacity != panels.processes.body_capacity;
+    app.set_process_table_layout(panels.processes.page_size, panels.processes.body_capacity);
+    if resized || process_height_changed {
         app.reveal_active_graph();
     }
-    let panels = main_panel_areas_for_app(screen_area, app);
-    app.set_process_page_size(panels.processes.page_size);
     app.set_details_sample_page_size(details_samples_page_size_for_app(&panels, app));
     app.set_help_page_size(help_page_size_for_screen(screen_area));
     app.set_column_picker_page_size(column_picker_page_size_for_screen(screen_area));

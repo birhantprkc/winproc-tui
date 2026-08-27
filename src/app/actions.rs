@@ -9,7 +9,8 @@ use ratatui::layout::{Margin, Rect};
 use crate::{
     app::{
         App, AppActivity, DetailsMetric, FocusedPanel, GraphHoverTarget, GraphId, GraphPanDrag,
-        GraphPanDragButton, GraphSlot, ProcessInfoFocus, TrackedListsView,
+        GraphPanDragButton, GraphSlot, ProcessInfoFocus, ProcessPanelHeight,
+        ProcessPanelResizeDrag, TrackedListsView,
     },
     platform::send_terminal_zoom_shortcut,
     ui::{
@@ -46,6 +47,7 @@ impl App {
             return Ok(());
         }
         self.clear_source_cell_click();
+        self.process_panel_resize_drag = None;
 
         if key.code == KeyCode::F(12) {
             self.cycle_theme();
@@ -828,6 +830,21 @@ impl App {
             return Ok(());
         }
 
+        if self.can_adjust_process_panel_height() {
+            if is_alt_h(key) {
+                self.reset_process_panel_height();
+                return Ok(());
+            }
+            if is_shift_h(key) {
+                self.adjust_process_panel_height(-1);
+                return Ok(());
+            }
+            if is_plain_h(key) {
+                self.adjust_process_panel_height(1);
+                return Ok(());
+            }
+        }
+
         if matches!(
             self.focused_panel,
             FocusedPanel::DetailsGraph | FocusedPanel::DetailsSamples
@@ -1398,11 +1415,16 @@ impl App {
             self.clear_source_cell_click();
             self.graph_hovered_target = None;
             self.cpu_per_core_hovered = false;
+            self.process_panel_resize_hovered = false;
+            self.process_panel_resize_drag = None;
         } else {
             self.graph_hovered_target =
                 graph_hover_target_at(self, screen_area, mouse.column, mouse.row);
             self.cpu_per_core_hovered =
                 cpu_per_core_button_area(cpu_panel_area_for_screen(screen_area, self))
+                    .is_some_and(|area| contains_point(area, mouse.column, mouse.row));
+            self.process_panel_resize_hovered =
+                process_panel_resize_handle_for_app(self, screen_area)
                     .is_some_and(|area| contains_point(area, mouse.column, mouse.row));
             if mouse.kind == MouseEventKind::Moved {
                 return;
@@ -1808,6 +1830,9 @@ impl App {
 
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                if self.start_process_panel_resize(mouse.column, mouse.row, screen_area) {
+                    return;
+                }
                 if cpu_per_core_button_area(cpu_panel_area_for_screen(screen_area, self))
                     .is_some_and(|area| contains_point(area, mouse.column, mouse.row))
                 {
@@ -1894,6 +1919,9 @@ impl App {
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
+                if self.finish_process_panel_resize() {
+                    return;
+                }
                 self.samples_scrollbar_dragging = false;
                 self.samples_scrollbar_grab_offset = 0;
                 self.graph_scrollbar_dragging = false;
@@ -1931,6 +1959,9 @@ impl App {
                 self.pan_graph_at(mouse.column, mouse.row, screen_area, false, true);
             }
             MouseEventKind::Drag(MouseButton::Left) => {
+                if self.drag_process_panel_resize(mouse.row, screen_area) {
+                    return;
+                }
                 if self.drag_graph_time_window(mouse.column, screen_area, GraphPanDragButton::Left)
                 {
                     return;
@@ -1956,6 +1987,78 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn adjust_process_panel_height(&mut self, delta: i32) {
+        let effective_rows = main_panel_areas_for_app(self.last_screen_area, self)
+            .processes
+            .body_capacity;
+        let base_rows = self
+            .process_panel_height
+            .preferred_rows()
+            .unwrap_or_else(|| u16::try_from(effective_rows).unwrap_or(u16::MAX))
+            .max(1);
+        let next_rows = (i32::from(base_rows) + delta).clamp(1, i32::from(u16::MAX)) as u16;
+        self.set_process_panel_height(ProcessPanelHeight::Manual(next_rows));
+    }
+
+    fn reset_process_panel_height(&mut self) {
+        self.set_process_panel_height(ProcessPanelHeight::Auto);
+    }
+
+    fn set_process_panel_height(&mut self, height: ProcessPanelHeight) {
+        self.process_panel_height = height;
+        self.status = match height {
+            ProcessPanelHeight::Auto => "Processes height: Auto".to_string(),
+            ProcessPanelHeight::Manual(1) => "Processes height: 1 row".to_string(),
+            ProcessPanelHeight::Manual(rows) => format!("Processes height: {rows} rows"),
+        };
+        self.sync_graph_layout_visibility();
+        self.reveal_active_graph();
+    }
+
+    fn start_process_panel_resize(&mut self, x: u16, y: u16, screen_area: Rect) -> bool {
+        let panels = main_panel_areas_for_app(screen_area, self);
+        let Some(handle) = panels.processes.resize_handle else {
+            self.process_panel_resize_drag = None;
+            return false;
+        };
+        if !contains_point(handle, x, y) {
+            return false;
+        }
+        let start_preferred_rows = self
+            .process_panel_height
+            .preferred_rows()
+            .unwrap_or_else(|| u16::try_from(panels.processes.body_capacity).unwrap_or(u16::MAX))
+            .max(1);
+        self.process_panel_resize_drag = Some(ProcessPanelResizeDrag {
+            start_row: y,
+            start_preferred_rows,
+        });
+        self.process_panel_resize_hovered = true;
+        true
+    }
+
+    fn drag_process_panel_resize(&mut self, row: u16, screen_area: Rect) -> bool {
+        let Some(drag) = self.process_panel_resize_drag else {
+            return false;
+        };
+        if process_panel_resize_handle_for_app(self, screen_area).is_none() {
+            self.process_panel_resize_drag = None;
+            self.process_panel_resize_hovered = false;
+            return false;
+        }
+        let delta = i32::from(row) - i32::from(drag.start_row);
+        let rows =
+            (i32::from(drag.start_preferred_rows) + delta).clamp(1, i32::from(u16::MAX)) as u16;
+        self.set_process_panel_height(ProcessPanelHeight::Manual(rows));
+        true
+    }
+
+    fn finish_process_panel_resize(&mut self) -> bool {
+        let was_dragging = self.process_panel_resize_drag.is_some();
+        self.process_panel_resize_drag = None;
+        was_dragging
     }
 
     fn start_help_scrollbar_drag(&mut self, x: u16, y: u16, screen_area: Rect) -> bool {
@@ -2658,6 +2761,12 @@ fn graph_workspace_layout_for_app(app: &App, screen_area: Rect) -> Option<GraphW
     Some(graph_workspace_layout(details, app))
 }
 
+fn process_panel_resize_handle_for_app(app: &App, screen_area: Rect) -> Option<Rect> {
+    main_panel_areas_for_app(screen_area, app)
+        .processes
+        .resize_handle
+}
+
 fn graph_area_at(app: &App, screen_area: Rect, x: u16, y: u16) -> Option<(usize, Rect)> {
     graph_workspace_layout_for_app(app, screen_area)?
         .graph_cards
@@ -2963,6 +3072,23 @@ fn is_plain_t(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('t')) && key.modifiers.is_empty()
 }
 
+fn is_alt_h(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'h'))
+        && key.modifiers.contains(KeyModifiers::ALT)
+        && !key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+fn is_shift_h(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'h'))
+        && !key.modifiers.contains(KeyModifiers::CONTROL)
+        && !key.modifiers.contains(KeyModifiers::ALT)
+        && (key.modifiers.contains(KeyModifiers::SHIFT) || matches!(key.code, KeyCode::Char('H')))
+}
+
+fn is_plain_h(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('h')) && key.modifiers.is_empty()
+}
+
 fn terminal_zoom_direction(mouse: &MouseEvent) -> Option<bool> {
     if !mouse.modifiers.contains(KeyModifiers::CONTROL) {
         return None;
@@ -2984,12 +3110,16 @@ mod tests {
         let without_total = ProcessTableLayout {
             area,
             page_size: 10,
+            body_capacity: 10,
             show_tracked_total: false,
+            resize_handle: None,
         };
         let with_total = ProcessTableLayout {
             area,
             page_size: 9,
+            body_capacity: 10,
             show_tracked_total: true,
+            resize_handle: None,
         };
 
         assert_eq!(process_row_index_at(without_total, 12, 5), Some(5));

@@ -1,5 +1,7 @@
 use super::support::{make_test_app, unique_config_path};
-use crate::app::{GraphSlotLayout, SAMPLE_STALE_AFTER_SECONDS, SampleFreshness};
+use crate::app::{
+    GraphSlotLayout, ProcessPanelHeight, SAMPLE_STALE_AFTER_SECONDS, SampleFreshness,
+};
 use crate::cli::Cli;
 use crate::config;
 use crate::config::{AppConfig, build_runtime_config, load_config, write_app_config};
@@ -99,6 +101,87 @@ fn build_runtime_config_restores_process_table_settings() {
         }
     );
     assert!(runtime.initial_tracked_only);
+}
+
+#[test]
+fn process_panel_height_defaults_to_auto_when_the_setting_is_missing() {
+    let config: AppConfig = toml::from_str(
+        r#"
+[process_table]
+preset = "Default"
+"#,
+    )
+    .unwrap();
+
+    let runtime = build_runtime_config(config).unwrap();
+
+    assert_eq!(
+        runtime.initial_process_panel_height,
+        ProcessPanelHeight::Auto
+    );
+}
+
+#[test]
+fn process_panel_height_loads_manual_rows_and_rejects_invalid_values() {
+    let manual: AppConfig = toml::from_str(
+        r#"
+[process_table]
+body_rows = 14
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        build_runtime_config(manual)
+            .unwrap()
+            .initial_process_panel_height,
+        ProcessPanelHeight::Manual(14)
+    );
+
+    for value in ["0", "-1", "65536", "\"invalid\""] {
+        let config: AppConfig =
+            toml::from_str(&format!("[process_table]\nbody_rows = {value}\n")).unwrap();
+        assert_eq!(
+            build_runtime_config(config)
+                .unwrap()
+                .initial_process_panel_height,
+            ProcessPanelHeight::Auto,
+            "value={value}"
+        );
+    }
+}
+
+#[test]
+fn process_panel_height_round_trips_manual_and_auto_settings() {
+    let path = unique_config_path("process-panel-height");
+    let mut app = make_test_app(20, 10);
+    app.process_panel_height = ProcessPanelHeight::Manual(14);
+
+    write_app_config(&path, &app).unwrap();
+    let manual_rendered = std::fs::read_to_string(&path).unwrap();
+    let manual_runtime = build_runtime_config(load_config(&path).unwrap()).unwrap();
+    assert!(
+        manual_rendered.contains("body_rows = 14"),
+        "{manual_rendered}"
+    );
+    assert_eq!(
+        manual_runtime.initial_process_panel_height,
+        ProcessPanelHeight::Manual(14)
+    );
+
+    app.process_panel_height = ProcessPanelHeight::Auto;
+    write_app_config(&path, &app).unwrap();
+    let auto_rendered = std::fs::read_to_string(&path).unwrap();
+    let auto_runtime = build_runtime_config(load_config(&path).unwrap()).unwrap();
+    let _ = std::fs::remove_file(&path);
+
+    assert!(
+        auto_rendered.contains("body_rows = \"auto\""),
+        "{auto_rendered}"
+    );
+    assert_eq!(
+        auto_runtime.initial_process_panel_height,
+        ProcessPanelHeight::Auto
+    );
 }
 
 #[test]

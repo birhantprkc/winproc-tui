@@ -90,6 +90,7 @@ fn help_dialog_buffer_shows_two_column_layout() {
         "{rendered}"
     );
     assert!(rendered.contains("Mouse"), "{rendered}");
+    assert!(rendered.contains("Processes / Graph split"), "{rendered}");
     assert!(!rendered.contains("▋"), "{rendered}");
 
     assert!(rendered.contains("Set A at sample"), "{rendered}");
@@ -136,6 +137,15 @@ fn help_dialog_buffer_shows_two_column_layout() {
     assert!(rendered.contains("Samples auto-scroll"), "{rendered}");
     assert!(rendered.contains("PageUp/PageDown"), "{rendered}");
     assert!(rendered.contains("Change time span"), "{rendered}");
+    assert!(
+        rendered.contains("Increase / decrease Processes height"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("Reset Processes height to Auto"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("Resize Processes height"), "{rendered}");
 
     assert!(!rendered.contains("Details panel"), "{rendered}");
     assert!(!rendered.contains("Dialogs"), "{rendered}");
@@ -411,6 +421,31 @@ fn footer_shortcuts_follow_the_focused_panel() {
     assert!(samples.contains("f/z Fit/Min 0"), "{samples}");
     assert!(samples.contains("Shift+A/B Jump A/B"), "{samples}");
     assert!(samples.contains("x Clear A/B"), "{samples}");
+}
+
+#[test]
+fn footer_shows_process_height_shortcuts_only_for_visible_workspace_focus() {
+    let mut app = make_test_app(3, 10);
+    let hidden = render_app_to_text(&app, 360, 45);
+    assert!(!hidden.contains("h/H/Alt+H Height"), "{hidden}");
+
+    assign_private_graph(&mut app);
+    for focused_panel in [
+        FocusedPanel::Processes,
+        FocusedPanel::DetailsGraph,
+        FocusedPanel::DetailsSamples,
+    ] {
+        app.focused_panel = focused_panel;
+        let rendered = render_app_to_text(&app, 360, 45);
+        assert!(
+            rendered.contains("h/H/Alt+H Height"),
+            "{focused_panel:?}: {rendered}"
+        );
+    }
+
+    app.focused_panel = FocusedPanel::System;
+    let system = render_app_to_text(&app, 360, 45);
+    assert!(!system.contains("h/H/Alt+H Height"), "{system}");
 }
 
 #[test]

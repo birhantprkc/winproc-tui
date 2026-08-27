@@ -100,6 +100,9 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
             ]
         }
     };
+    if app.can_adjust_process_panel_height() {
+        items.insert(0, ("h/H/Alt+H", "Height"));
+    }
     if app.activity() == AppActivity::Recording {
         if app.focused_panel == FocusedPanel::Processes {
             let identity_column_selected = app.selected_process_column_toggles_tracking();

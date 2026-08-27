@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::app::{App, GraphSlotLayout};
+use crate::app::{App, GraphSlotLayout, ProcessPanelHeight};
 use crate::model::{
     ColumnPreset, MetricColumn, ProcessColumnWidths, SortColumn, SortDirection, SortSpec,
 };
@@ -75,6 +75,7 @@ pub(crate) struct ProcessTableConfig {
     pub(crate) sort_by: String,
     pub(crate) sort_order: String,
     pub(crate) tracked_only: bool,
+    pub(crate) body_rows: ProcessPanelHeightConfig,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) column_widths: BTreeMap<String, i64>,
 }
@@ -91,8 +92,22 @@ impl Default for ProcessTableConfig {
             sort_by: MetricColumn::WorksetPrivateBytes.label().to_string(),
             sort_order: SortDirection::Desc.label().to_string(),
             tracked_only: false,
+            body_rows: ProcessPanelHeightConfig::default(),
             column_widths: BTreeMap::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ProcessPanelHeightConfig {
+    Rows(i64),
+    Mode(String),
+}
+
+impl Default for ProcessPanelHeightConfig {
+    fn default() -> Self {
+        Self::Mode("auto".to_string())
     }
 }
 
@@ -172,6 +187,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) process_column_widths: ProcessColumnWidths,
     pub(crate) sort: SortSpec,
     pub(crate) initial_tracked_only: bool,
+    pub(crate) initial_process_panel_height: ProcessPanelHeight,
     pub(crate) process_filters: Vec<String>,
     pub(crate) tracked_list_startup: TrackedListStartup,
     pub(crate) active_tracked_list: Option<String>,
@@ -270,6 +286,7 @@ pub(crate) fn build_runtime_config(config: AppConfig) -> Result<RuntimeConfig> {
                 .unwrap_or(SortDirection::Desc),
         },
         initial_tracked_only: config.process_table.tracked_only,
+        initial_process_panel_height: process_panel_height(config.process_table.body_rows),
         process_filters,
         tracked_list_startup: config.tracking.startup,
         active_tracked_list,
@@ -307,6 +324,12 @@ pub(crate) fn write_app_config(path: &Path, app: &App) -> Result<()> {
             sort_by: app.sort.column.label().to_string(),
             sort_order: app.sort.direction.label().to_string(),
             tracked_only: app.watch_enabled,
+            body_rows: match app.process_panel_height {
+                ProcessPanelHeight::Auto => ProcessPanelHeightConfig::default(),
+                ProcessPanelHeight::Manual(rows) => {
+                    ProcessPanelHeightConfig::Rows(i64::from(rows.max(1)))
+                }
+            },
             column_widths: app
                 .process_column_widths
                 .overrides()
@@ -382,5 +405,16 @@ fn parse_width_column(label: &str) -> Option<SortColumn> {
     match column {
         SortColumn::Metric(metric) if !metric.is_selectable() => None,
         _ => Some(column),
+    }
+}
+
+fn process_panel_height(config: ProcessPanelHeightConfig) -> ProcessPanelHeight {
+    match config {
+        ProcessPanelHeightConfig::Rows(rows) if (1..=i64::from(u16::MAX)).contains(&rows) => {
+            ProcessPanelHeight::Manual(rows as u16)
+        }
+        ProcessPanelHeightConfig::Rows(_) | ProcessPanelHeightConfig::Mode(_) => {
+            ProcessPanelHeight::Auto
+        }
     }
 }

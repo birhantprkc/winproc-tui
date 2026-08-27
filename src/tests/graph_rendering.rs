@@ -1252,6 +1252,34 @@ fn samples_wheel_does_not_scroll_graph_workspace_rows() {
 }
 
 #[test]
+fn increasing_process_height_keeps_the_active_graph_reachable() {
+    let mut app = make_test_app(30, 10);
+    let active_id = (0..8)
+        .map(|index| add_test_graph(&mut app, index))
+        .last()
+        .unwrap();
+    app.graph_slot_layout = GraphSlotLayout::OneColumn;
+    app.show_samples_panel = false;
+    app.focused_panel = FocusedPanel::DetailsGraph;
+    let screen = Rect::new(0, 0, 100, 60);
+    app::sync_layout_state(&mut app, screen);
+
+    for _ in 0..10 {
+        app.on_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE))
+            .unwrap();
+    }
+    app::sync_layout_state(&mut app, screen);
+
+    let details = main_panel_areas_for_app(screen, &app).details.unwrap();
+    let layout = ui::layout::graph_workspace_layout(details, &app);
+    assert_eq!(app.active_graph_id, Some(active_id));
+    assert!(
+        layout.graph_cards.iter().any(|card| card.id == active_id),
+        "active Graph should remain in the visible viewport: {layout:?}"
+    );
+}
+
+#[test]
 fn graph_current_line_label_draws_selected_value_in_accent() {
     let mut app = make_test_app(1, 10);
     app.snapshot.processes[0].private_bytes = Some(424_242);

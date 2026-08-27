@@ -50,6 +50,10 @@ Cards scroll by layout row. Selection changes scroll position only enough to kee
 
 Graph assignment is independent from terminal geometry and workspace visibility. Resize preserves entries, order, active ID, selected time, A/B timestamps, and live-follow state while recalculating effective columns, Samples placement, and row scroll. If a readable plot cannot fit, the active card retains its identity and remove action and shows a resize message.
 
+The vertical split above the Graph Workspace uses either `Auto` or a saved preferred `PROCESSES` table-body capacity. `Auto` keeps the existing content-driven height and ten-row cap. A manual preference may exceed that cap, but the effective height still shrinks to the number of rendered process rows and always leaves the Graph Workspace its minimum readable height. Content or terminal-size clamps do not overwrite the preference, so later growth or a larger terminal restores it. Hiding Graphs gives `PROCESSES` the full lower area; showing them again reapplies the saved split across Live, Recording, and Log view. The `[process_table]` configuration stores this as `body_rows = "auto"` or a positive integer.
+
+`h` increases the preferred body capacity, `Shift+H` decreases it, and `Alt+H` returns to `Auto` while Processes, a Graph, or Samples has focus. A mouse drag that begins on the shared bottom border of `PROCESSES` updates the same preference in whole rows. The shared layout result owns that border's drawing and hit-test rectangle. Modal input, hidden Graphs, and terminal resize end an active drag without persisting pointer coordinates.
+
 Drawing and mouse hit testing consume one `GraphWorkspaceLayout` result for shared controls, the viewport, visible cards, plot regions, remove actions, the scrollbar, and Samples. Only visible cards perform series-rendering work; the active Samples series can still be resolved while its card is outside the viewport.
 
 ## Invariants
@@ -58,6 +62,7 @@ Drawing and mouse hit testing consume one `GraphWorkspaceLayout` result for shar
 - Graph IDs are run-unique and never reused.
 - Reordering preserves identity and all shared comparison state.
 - Resize and visibility changes never discard Graph registrations.
+- Process/Graph split clamps never overwrite the saved `Auto` or preferred body-row setting.
 - Every Graph remains reachable through row scrolling.
 - Shared time state never substitutes another series' nearby sample.
 - Drawing and hit testing use the same computed geometry.

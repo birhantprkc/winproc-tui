@@ -535,6 +535,28 @@ pub(crate) struct GraphPanDrag {
     pub(crate) start_offset_seconds: u32,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ProcessPanelHeight {
+    #[default]
+    Auto,
+    Manual(u16),
+}
+
+impl ProcessPanelHeight {
+    pub(crate) const fn preferred_rows(self) -> Option<u16> {
+        match self {
+            Self::Auto => None,
+            Self::Manual(rows) => Some(rows),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProcessPanelResizeDrag {
+    pub(crate) start_row: u16,
+    pub(crate) start_preferred_rows: u16,
+}
+
 impl GraphSlot {
     pub(crate) fn process(identity: ProcessIdentity, metric: DetailsMetric) -> Self {
         Self::Process { identity, metric }
@@ -895,6 +917,10 @@ pub(crate) struct App {
     pub(crate) system_info_host: SystemInfoHost,
     pub(crate) process_table_state: TableState,
     pub(crate) process_page_size: usize,
+    pub(crate) process_panel_body_capacity: usize,
+    pub(crate) process_panel_height: ProcessPanelHeight,
+    pub(crate) process_panel_resize_drag: Option<ProcessPanelResizeDrag>,
+    pub(crate) process_panel_resize_hovered: bool,
     pub(crate) selected_process_identity: Option<ProcessIdentity>,
     pub(crate) process_selection_anchor: Option<ProcessIdentity>,
     pub(crate) selected_process_identities: HashSet<ProcessIdentity>,
@@ -1104,6 +1130,7 @@ impl App {
         let graph_slot_layout = runtime.initial_graph_slot_layout;
         let show_samples_panel = runtime.initial_show_samples_panel;
         let show_sample_delta = runtime.initial_show_sample_delta;
+        let process_panel_height = runtime.initial_process_panel_height;
         let mut app = Self {
             theme_index: theme_index_by_name(&runtime.initial_theme),
             runtime,
@@ -1117,6 +1144,10 @@ impl App {
             system_info_host: SystemInfoHost::collect(),
             process_table_state,
             process_page_size: 1,
+            process_panel_body_capacity: 1,
+            process_panel_height,
+            process_panel_resize_drag: None,
+            process_panel_resize_hovered: false,
             selected_process_identity,
             process_selection_anchor: None,
             selected_process_identities: HashSet::new(),
@@ -1362,8 +1393,9 @@ impl App {
             .or(self.log_view_path.as_ref())
     }
 
-    pub(crate) fn set_process_page_size(&mut self, page_size: usize) {
+    pub(crate) fn set_process_table_layout(&mut self, page_size: usize, body_capacity: usize) {
         self.process_page_size = page_size;
+        self.process_panel_body_capacity = body_capacity;
     }
 
     pub(crate) fn set_details_sample_page_size(&mut self, page_size: usize) {
@@ -1378,8 +1410,27 @@ impl App {
     }
 
     pub(crate) fn set_screen_area(&mut self, area: Rect) {
+        if self.last_screen_area != area {
+            self.process_panel_resize_drag = None;
+        }
         self.last_screen_area = area;
         self.ensure_selected_process_column_visible();
+    }
+
+    pub(crate) fn can_adjust_process_panel_height(&self) -> bool {
+        self.show_details
+            && !self.graph_entries.is_empty()
+            && matches!(
+                self.focused_panel,
+                FocusedPanel::Processes | FocusedPanel::DetailsGraph | FocusedPanel::DetailsSamples
+            )
+    }
+
+    pub(crate) fn cancel_process_panel_resize_if_unavailable(&mut self) {
+        if self.has_modal_focus() || !self.show_details || self.graph_entries.is_empty() {
+            self.process_panel_resize_drag = None;
+            self.process_panel_resize_hovered = false;
+        }
     }
 
     pub(crate) fn is_filter_editing(&self) -> bool {

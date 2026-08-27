@@ -377,6 +377,10 @@ const MOUSE_ROWS: &[HelpItem] = &[
         label: "Scroll",
     },
     HelpItem {
+        key: "Drag Processes/Graphs border",
+        label: "Resize Processes height",
+    },
+    HelpItem {
         key: "Wheel",
         label: "Scroll / Move selection",
     },
@@ -387,6 +391,17 @@ const MOUSE_ROWS: &[HelpItem] = &[
     HelpItem {
         key: "Right click",
         label: "Samples auto-scroll",
+    },
+];
+
+const PROCESS_GRAPH_SPLIT_ROWS: &[HelpItem] = &[
+    HelpItem {
+        key: "h/Shift+H",
+        label: "Increase / decrease Processes height",
+    },
+    HelpItem {
+        key: "Alt+H",
+        label: "Reset Processes height to Auto",
     },
 ];
 
@@ -433,6 +448,11 @@ const RIGHT_SECTIONS: &[HelpSection] = &[
         title: "Graph Workspace",
         focus_hint: Some("Graph focus"),
         rows: GRAPH_ROWS,
+    },
+    HelpSection {
+        title: "Processes / Graph split",
+        focus_hint: Some("Processes, Graph, or Samples focus"),
+        rows: PROCESS_GRAPH_SPLIT_ROWS,
     },
     HelpSection {
         title: "Samples",

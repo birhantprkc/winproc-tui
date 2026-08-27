@@ -3,7 +3,7 @@ use ratatui::widgets::TableState;
 
 use crate::app::{
     self, App, DetailsMetric, DetailsTarget, FocusedPanel, GraphSlot, GraphSlotLayout,
-    VisibleProcessEntry,
+    ProcessPanelHeight, VisibleProcessEntry,
 };
 use crate::config::{self, RuntimeConfig};
 use crate::model::{
@@ -145,6 +145,7 @@ pub(in crate::tests) fn make_test_app_with_workers(
             process_column_widths: ProcessColumnWidths::default(),
             sort: SortSpec::default(),
             initial_tracked_only: false,
+            initial_process_panel_height: ProcessPanelHeight::Auto,
             process_filters: Vec::new(),
             tracked_list_startup: config::TrackedListStartup::ResumeLast,
             active_tracked_list: None,
@@ -161,6 +162,10 @@ pub(in crate::tests) fn make_test_app_with_workers(
         system_info_host: app::system_info::SystemInfoHost::default(),
         process_table_state: table_state,
         process_page_size: page_size,
+        process_panel_body_capacity: page_size,
+        process_panel_height: ProcessPanelHeight::Auto,
+        process_panel_resize_drag: None,
+        process_panel_resize_hovered: false,
         selected_process_identity,
         process_selection_anchor: None,
         selected_process_identities: std::collections::HashSet::new(),
