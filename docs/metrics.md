@@ -311,6 +311,14 @@ Graph card titles keep process metric names compact and qualify system metrics w
 Percent, throughput, and disk queue-length Y-axis ticks retain their metric-specific formats.
 The `B-A` value in each Graph card title uses the same metric-specific format as the A/B comparison. It is `--` unless both points are set and that Graph has values at both exact captured times.
 
+### Graph display smoothing
+
+Each Graph independently displays either its raw stored samples or `MA5`. Raw is the default and retains the existing plotted representation. `MA5` is a trailing simple moving average of exactly five contiguous available stored values, including the current value. The first four values after registration or any gap produce no MA5 point. An unavailable current metric, a missing frame, a process absence, or an adapter absence clears the window, so the line never connects or averages across that gap. Process Graphs remain keyed by full process identity, and GPU Graphs remain keyed by adapter LUID, so process restarts, PID reuse, and adapter changes cannot share an MA5 window.
+
+MA5 is a display-only derivation calculated in one bounded pass over the retained samples of each visible Graph. Its values determine the plotted line and visible Y-axis bounds. Raw histories are never rewritten. Samples rows, Max, A/B points, `B-A`, range statistics, clipboard output, Recording aggregation, and stored log data continue to use raw exact values. The Samples MA5 summary follows the same complete-window and gap rules.
+
+The compact per-card `[MA]` label means MA5. A cursor value attached to the smoothed line is prefixed with `MA5`. In Log view, the effective window is disclosed as `MA5 (5×Ns avg)`, where `N` is the recording frame interval. Thus `1s`, `2s`, `5s`, and `10s` logs use five already-recorded frames and show 5-, 10-, 25-, or 50-second effective windows; the application does not reconstruct one-second data from aggregated logs.
+
 ## Metrics in Recording Logs
 
 Recording logs are JSON Lines. The current writer outputs schema version 3 and the reader loads schema versions 2 and 3.

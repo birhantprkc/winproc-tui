@@ -58,6 +58,7 @@ pub(crate) struct GraphCardLayout {
     pub(crate) ordinal: usize,
     pub(crate) area: Rect,
     pub(crate) title: Rect,
+    pub(crate) display_mode: Rect,
     pub(crate) remove: Rect,
     pub(crate) remove_label: &'static str,
     pub(crate) plot: Rect,
@@ -466,11 +467,19 @@ fn graph_card_layout(area: Rect, id: GraphId, ordinal: usize) -> GraphCardLayout
         remove_width,
         title.height,
     );
+    let display_mode_width = 7.min(remove.x.saturating_sub(title.x));
+    let display_mode = Rect::new(
+        remove.x.saturating_sub(display_mode_width),
+        title.y,
+        display_mode_width,
+        title.height,
+    );
     GraphCardLayout {
         id,
         ordinal,
         area,
         title,
+        display_mode,
         remove,
         remove_label,
         plot: area.inner(Margin {

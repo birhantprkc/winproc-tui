@@ -868,6 +868,13 @@ impl App {
                     return Ok(());
                 }
                 KeyCode::Char(ch)
+                    if ch.eq_ignore_ascii_case(&'m')
+                        && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
+                    self.toggle_active_graph_display_mode();
+                    return Ok(());
+                }
+                KeyCode::Char(ch)
                     if ch.eq_ignore_ascii_case(&'z')
                         && !key.modifiers.contains(KeyModifiers::CONTROL) =>
                 {
@@ -1845,6 +1852,11 @@ impl App {
                 if self.activate_graph_span_control_at(mouse.column, mouse.row, screen_area) {
                     return;
                 }
+                if let Some(id) = graph_display_mode_at(self, screen_area, mouse.column, mouse.row)
+                {
+                    self.toggle_graph_display_mode(id);
+                    return;
+                }
                 if let Some(id) = graph_remove_at(self, screen_area, mouse.column, mouse.row) {
                     self.remove_graph(id);
                     return;
@@ -2791,6 +2803,14 @@ fn graph_remove_at(app: &App, screen_area: Rect, x: u16, y: u16) -> Option<Graph
         .map(|card| card.id)
 }
 
+fn graph_display_mode_at(app: &App, screen_area: Rect, x: u16, y: u16) -> Option<GraphId> {
+    graph_workspace_layout_for_app(app, screen_area)?
+        .graph_cards
+        .into_iter()
+        .find(|card| contains_point(card.display_mode, x, y))
+        .map(|card| card.id)
+}
+
 fn graph_hover_target_at(app: &App, screen_area: Rect, x: u16, y: u16) -> Option<GraphHoverTarget> {
     let layout = graph_workspace_layout_for_app(app, screen_area)?;
     if app.can_zoom_graph_time_span(false)
@@ -2808,6 +2828,13 @@ fn graph_hover_target_at(app: &App, screen_area: Rect, x: u16, y: u16) -> Option
             .is_some_and(|area| contains_point(area, x, y))
     {
         return Some(GraphHoverTarget::ZoomIn);
+    }
+    if let Some(card) = layout
+        .graph_cards
+        .iter()
+        .find(|card| contains_point(card.display_mode, x, y))
+    {
+        return Some(GraphHoverTarget::DisplayMode(card.id));
     }
     layout
         .graph_cards

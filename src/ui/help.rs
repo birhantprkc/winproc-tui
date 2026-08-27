@@ -260,6 +260,10 @@ const GRAPH_ROWS: &[HelpItem] = &[
         label: "Remove active Graph",
     },
     HelpItem {
+        key: "m",
+        label: "Toggle active Graph Raw / MA5",
+    },
+    HelpItem {
         key: "Left",
         label: "Select older sample time",
     },
@@ -313,6 +317,10 @@ const SAMPLES_ROWS: &[HelpItem] = &[
     HelpItem {
         key: "Delete",
         label: "Remove active Graph",
+    },
+    HelpItem {
+        key: "m",
+        label: "Toggle active Graph Raw / MA5",
     },
     HelpItem {
         key: "PageUp/PageDown",

@@ -4,7 +4,7 @@ This document defines the state model and invariants of the ordered Graph Worksp
 
 ## Graph Identity and Sources
 
-The workspace stores an ordered `Vec<GraphEntry>` with a limit of 16. Each entry contains a run-unique, monotonically increasing `GraphId` and one `GraphSlot` source.
+The workspace stores an ordered `Vec<GraphEntry>` with a limit of 16. Each entry contains a run-unique, monotonically increasing `GraphId`, one `GraphSlot` source, and its display mode. `Raw` is the default display mode; `MA5` is an explicit per-Graph alternative.
 
 A source identifies one graphable system metric or one process metric. Process sources retain a full `ProcessIdentity`, not a visible row or PID alone. GPU sources retain the adapter LUID so changing the currently displayed adapter does not retarget an existing Graph.
 
@@ -21,6 +21,7 @@ Graph registrations, IDs, and scroll position are session state and are not rest
 | Selected sample time | Y-axis scale |
 | A and B timestamps | Rendered values and B-A result |
 | Y-axis lower-bound mode | Process or GPU identity |
+| Log-view frame interval | Raw or MA5 display mode |
 
 The shared right edge comes from the latest sample across all registered Graphs. Each series is plotted against that reference rather than against its own latest sample.
 
@@ -34,6 +35,8 @@ Direct moves update the ordered collection immediately while keeping the moved e
 
 The active Graph determines which series the shared Samples inspector displays. Changing the active Graph aligns Samples to the shared selected time without manufacturing a value when that series has no sample there.
 
+Changing a Graph's display mode affects only that entry. Reordering and resize preserve the mode with its `GraphId`; removing the entry removes its mode. The active Graph, selected time, visible range, live-follow state, and A/B timestamps do not change when a mode button is used, including when the button belongs to an inactive card.
+
 ## Time Selection and A/B Comparison
 
 Navigation may select a nearby useful timestamp, but a Graph displays a value only when that series has a sample at the exact selected `captured_at`. Another Graph's nearby sample must never be presented as synchronized data.
@@ -41,6 +44,8 @@ Navigation may select a nearby useful timestamp, but a Graph displays a value on
 When selection moves outside the visible range, the range shifts only far enough to reveal it. Moving between samples already inside the range does not move the window.
 
 A/B timestamps are shared, while values remain Graph-specific. A Graph reports `B-A` only when it has values at both exact timestamps; otherwise it displays an unavailable value. Process Info applies the same-time rule to the fixed process identity described in [Process Investigation](process-investigation.md).
+
+Display smoothing does not change time selection or comparison data. Samples rows, Max, A/B values, `B-A`, range statistics, and clipboard output always use raw stored values. A cursor value attached to an MA5 line is labeled `MA5`; in Log view it also discloses the loaded frame interval.
 
 ## Layout and Resize
 
@@ -54,13 +59,14 @@ The vertical split above the Graph Workspace uses either `Auto` or a saved prefe
 
 `h` increases the preferred body capacity, `Shift+H` decreases it, and `Alt+H` returns to `Auto` while Processes, a Graph, or Samples has focus. A mouse drag that begins on the shared bottom border of `PROCESSES` updates the same preference in whole rows. The shared layout result owns that border's drawing and hit-test rectangle. Modal input, hidden Graphs, and terminal resize end an active drag without persisting pointer coordinates.
 
-Drawing and mouse hit testing consume one `GraphWorkspaceLayout` result for shared controls, the viewport, visible cards, plot regions, remove actions, the scrollbar, and Samples. Only visible cards perform series-rendering work; the active Samples series can still be resolved while its card is outside the viewport.
+Drawing and mouse hit testing consume one `GraphWorkspaceLayout` result for shared controls, the viewport, visible cards, plot regions, per-card `[RAW]` / `[MA]` mode actions, remove actions, the scrollbar, and Samples. The mode action is immediately before `[x]`; both remain separate when a title is truncated. Clicking it targets the owning stable `GraphId` without activating that card. Only visible cards perform series-rendering work; the active Samples series can still be resolved while its card is outside the viewport.
 
 ## Invariants
 
 - A non-empty workspace contains at most 16 unique sources and one valid active ID.
 - Graph IDs are run-unique and never reused.
 - Reordering preserves identity and all shared comparison state.
+- Raw or MA5 mode remains owned by its Graph entry across reordering and resize.
 - Resize and visibility changes never discard Graph registrations.
 - Process/Graph split clamps never overwrite the saved `Auto` or preferred body-row setting.
 - Every Graph remains reachable through row scrolling.

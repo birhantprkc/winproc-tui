@@ -1,6 +1,6 @@
 use super::support::{add_test_graph, make_test_app, test_graph_source};
 use crate::app;
-use crate::app::{DetailsMetric, FocusedPanel, GraphSlot, GraphSlotLayout};
+use crate::app::{DetailsMetric, FocusedPanel, GraphDisplayMode, GraphSlot, GraphSlotLayout};
 use crate::model::{ProcessIdentity, SystemMetric};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
@@ -84,6 +84,99 @@ fn graph_ids_are_monotonic_and_are_not_reused_after_removal() {
 
     assert!(second.0 > first.0);
     assert_ne!(second, first);
+}
+
+#[test]
+fn graph_display_modes_are_per_entry_and_follow_stable_graph_ids() {
+    let mut app = make_test_app(1, 10);
+    let ids = (0..3)
+        .map(|index| add_test_graph(&mut app, index))
+        .collect::<Vec<_>>();
+    assert!(app.set_active_graph(ids[0]));
+    app.details_sample_selected = 7;
+    app.graph_time_offset_seconds = 30;
+    app.ab_comparison = Some(app::AbComparison { a: None, b: None });
+
+    assert!(app.toggle_graph_display_mode(ids[1]));
+
+    assert_eq!(app.active_graph_id, Some(ids[0]));
+    assert_eq!(app.details_sample_selected, 7);
+    assert_eq!(app.graph_time_offset_seconds, 30);
+    assert_eq!(
+        app.graph_entry_by_id(ids[1]).unwrap().display_mode,
+        GraphDisplayMode::MovingAverage5
+    );
+    assert_eq!(
+        app.graph_entry_by_id(ids[0]).unwrap().display_mode,
+        GraphDisplayMode::Raw
+    );
+    assert_eq!(
+        app.graph_entry_by_id(ids[2]).unwrap().display_mode,
+        GraphDisplayMode::Raw
+    );
+
+    assert!(app.set_active_graph(ids[1]));
+    assert!(app.move_active_graph_earlier());
+    app.set_screen_area(Rect::new(0, 0, 80, 40));
+    assert_eq!(
+        app.graph_entry_by_id(ids[1]).unwrap().display_mode,
+        GraphDisplayMode::MovingAverage5
+    );
+
+    assert!(app.remove_graph(ids[1]));
+    assert!(app.graph_entry_by_id(ids[1]).is_none());
+    assert!(
+        app.graph_entries
+            .iter()
+            .all(|entry| entry.display_mode == GraphDisplayMode::Raw)
+    );
+}
+
+#[test]
+fn keyboard_toggles_only_the_active_graph_display_mode() {
+    let mut app = make_test_app(1, 10);
+    let ids = (0..2)
+        .map(|index| add_test_graph(&mut app, index))
+        .collect::<Vec<_>>();
+    assert!(app.set_active_graph(ids[0]));
+    app.focused_panel = FocusedPanel::DetailsGraph;
+
+    app.on_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE))
+        .unwrap();
+
+    assert_eq!(
+        app.graph_entry_by_id(ids[0]).unwrap().display_mode,
+        GraphDisplayMode::MovingAverage5
+    );
+    assert_eq!(
+        app.graph_entry_by_id(ids[1]).unwrap().display_mode,
+        GraphDisplayMode::Raw
+    );
+}
+
+#[test]
+fn display_mode_toggle_does_not_change_raw_history_or_comparison_state() {
+    let mut app = make_test_app(1, 10);
+    let tracked = std::collections::HashSet::new();
+    for offset in 0..6 {
+        let captured_at = app.snapshot.captured_at + chrono::Duration::seconds(offset);
+        app.process_history
+            .record_snapshot(captured_at, &app.snapshot.processes, &tracked);
+    }
+    let identity = ProcessIdentity::from_row(&app.snapshot.processes[0]);
+    let source = GraphSlot::process(identity, DetailsMetric::Private);
+    assert!(app.add_or_reveal_graph_source(source.clone(), FocusedPanel::Processes));
+    let id = app.active_graph_id.unwrap();
+    let before = app.graph_slot_samples(&source);
+    app.ab_comparison = Some(app::AbComparison { a: None, b: None });
+
+    assert!(app.toggle_graph_display_mode(id));
+
+    assert_eq!(app.graph_slot_samples(&source), before);
+    assert_eq!(
+        app.ab_comparison,
+        Some(app::AbComparison { a: None, b: None })
+    );
 }
 
 #[test]

@@ -108,6 +108,10 @@ fn help_dialog_buffer_shows_two_column_layout() {
     assert!(rendered.contains("Select newer sample"), "{rendered}");
     assert!(rendered.contains("Remove active Graph"), "{rendered}");
     assert!(
+        rendered.contains("Toggle active Graph Raw / MA5"),
+        "{rendered}"
+    );
+    assert!(
         rendered.contains("f/z") && rendered.contains("Fit all / compact Min0"),
         "{rendered}"
     );
@@ -404,6 +408,7 @@ fn footer_shortcuts_follow_the_focused_panel() {
     assert!(!graph.contains("Prev Slot"), "{graph}");
     assert!(!graph.contains("Next Slot"), "{graph}");
     assert!(graph.contains("Del Remove Graph"), "{graph}");
+    assert!(graph.contains("m Raw/MA5"), "{graph}");
     assert!(graph.contains("Enter Info"), "{graph}");
     assert!(graph.contains("Ctrl+←/→ Pan"), "{graph}");
     assert!(graph.contains("PgUp/PgDn Span"), "{graph}");
@@ -416,6 +421,7 @@ fn footer_shortcuts_follow_the_focused_panel() {
     assert!(samples.contains("↑/← Older"), "{samples}");
     assert!(samples.contains("↓/→ Newer"), "{samples}");
     assert!(samples.contains("Del Remove Graph"), "{samples}");
+    assert!(samples.contains("m Raw/MA5"), "{samples}");
     assert!(samples.contains("PgUp/PgDn Scroll"), "{samples}");
     assert!(samples.contains("Home/End Edge"), "{samples}");
     assert!(samples.contains("f/z Fit/Min 0"), "{samples}");

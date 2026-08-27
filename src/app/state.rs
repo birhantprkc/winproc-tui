@@ -468,10 +468,41 @@ impl Eq for GraphSlot {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct GraphId(pub(crate) u64);
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum GraphDisplayMode {
+    #[default]
+    Raw,
+    MovingAverage5,
+}
+
+impl GraphDisplayMode {
+    pub(crate) const fn next(self) -> Self {
+        match self {
+            Self::Raw => Self::MovingAverage5,
+            Self::MovingAverage5 => Self::Raw,
+        }
+    }
+
+    pub(crate) const fn button_label(self) -> &'static str {
+        match self {
+            Self::Raw => "[RAW]",
+            Self::MovingAverage5 => "[MA]",
+        }
+    }
+
+    pub(crate) const fn status_label(self) -> &'static str {
+        match self {
+            Self::Raw => "Raw",
+            Self::MovingAverage5 => "MA5",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GraphHoverTarget {
     ZoomOut,
     ZoomIn,
+    DisplayMode(GraphId),
     Remove(GraphId),
 }
 
@@ -479,6 +510,7 @@ pub(crate) enum GraphHoverTarget {
 pub(crate) struct GraphEntry {
     pub(crate) id: GraphId,
     pub(crate) source: GraphSlot,
+    pub(crate) display_mode: GraphDisplayMode,
 }
 
 #[derive(Debug, Clone)]
@@ -2161,6 +2193,10 @@ impl App {
         self.graph_entries.iter().find(|entry| entry.id == id)
     }
 
+    pub(crate) fn graph_entry_by_id_mut(&mut self, id: GraphId) -> Option<&mut GraphEntry> {
+        self.graph_entries.iter_mut().find(|entry| entry.id == id)
+    }
+
     pub(crate) fn graph_index_by_id(&self, id: GraphId) -> Option<usize> {
         self.graph_entries.iter().position(|entry| entry.id == id)
     }
@@ -2478,6 +2514,24 @@ impl App {
             .is_some_and(|id| self.select_graph(id))
     }
 
+    pub(crate) fn toggle_active_graph_display_mode(&mut self) -> bool {
+        let Some(id) = self.active_graph_id else {
+            return false;
+        };
+        self.toggle_graph_display_mode(id)
+    }
+
+    pub(crate) fn toggle_graph_display_mode(&mut self, id: GraphId) -> bool {
+        let Some(entry) = self.graph_entry_by_id_mut(id) else {
+            return false;
+        };
+        entry.display_mode = entry.display_mode.next();
+        let mode = entry.display_mode.status_label();
+        let description = entry.source.description();
+        self.status = format!("Graph display: {mode} · {description}");
+        true
+    }
+
     pub(crate) fn select_previous_graph(&mut self) {
         let Some(active) = self.active_graph_index() else {
             return;
@@ -2690,7 +2744,11 @@ impl App {
             .checked_add(1)
             .expect("GraphId space exhausted");
         let description = source.description();
-        self.graph_entries.push(GraphEntry { id, source });
+        self.graph_entries.push(GraphEntry {
+            id,
+            source,
+            display_mode: GraphDisplayMode::default(),
+        });
         self.active_graph_id = Some(id);
         self.graph_return_focus = return_focus;
         self.show_details = true;

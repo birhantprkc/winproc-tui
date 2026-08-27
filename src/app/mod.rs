@@ -43,6 +43,7 @@ pub(crate) use state::FocusedPanel;
 pub(crate) use state::GRAPH_LIMIT;
 pub(crate) use state::GRAPH_SLOT_MIN_HEIGHT;
 pub(crate) use state::GRAPH_SLOT_MIN_WIDTH;
+pub(crate) use state::GraphDisplayMode;
 pub(crate) use state::GraphHoverTarget;
 pub(crate) use state::GraphId;
 pub(crate) use state::GraphPanDrag;

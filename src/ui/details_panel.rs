@@ -16,8 +16,8 @@ use ratatui::{
 use crate::{
     App,
     app::{
-        AbComparison, AbComparisonPoint, FocusedPanel, GraphHoverTarget, GraphSample, GraphSlot,
-        GraphValueFormat,
+        AbComparison, AbComparisonPoint, FocusedPanel, GraphDisplayMode, GraphHoverTarget,
+        GraphSample, GraphSlot, GraphValueFormat,
     },
     ui::{
         Theme,
@@ -40,11 +40,32 @@ const SAMPLE_DELTA_WIDTH: usize = 15;
 
 struct GraphCardRenderData {
     samples: Vec<GraphSample>,
+    display_samples: Option<Vec<GraphSample>>,
+    display_mode: GraphDisplayMode,
     metric: GraphValueFormat,
     bounds: (i64, i64),
     segments: Vec<Vec<(f64, f64)>>,
     y_min: f64,
     y_max: f64,
+}
+
+impl GraphCardRenderData {
+    fn plotted_samples(&self) -> &[GraphSample] {
+        self.display_samples.as_deref().unwrap_or(&self.samples)
+    }
+}
+
+fn graph_frame_times(app: &App) -> Cow<'_, [DateTime<Local>]> {
+    if !app.log_view_frame_times.is_empty() {
+        Cow::Borrowed(app.log_view_frame_times.as_slice())
+    } else {
+        Cow::Owned(
+            app.display_system_history()
+                .samples_iter()
+                .map(|sample| sample.captured_at)
+                .collect(),
+        )
+    }
 }
 
 pub(crate) fn draw_details_panel(
@@ -79,8 +100,8 @@ pub(crate) fn draw_details_panel(
         app.effective_graph_time_offset_seconds(),
     );
     let time_reference_at = app.graph_time_reference_at();
-    let frame_times =
-        (!app.log_view_frame_times.is_empty()).then_some(app.log_view_frame_times.as_slice());
+    let frame_times = graph_frame_times(app);
+    let frame_times = (!frame_times.is_empty()).then_some(frame_times.as_ref());
     let prepared_cards = layout
         .graph_cards
         .iter()
@@ -91,6 +112,7 @@ pub(crate) fn draw_details_panel(
                 prepare_graph_card_render_data(
                     app,
                     &entry.source,
+                    entry.display_mode,
                     bounds,
                     time_reference_at,
                     frame_times,
@@ -148,7 +170,14 @@ pub(crate) fn draw_details_panel(
     }
     render_graph_workspace_scrollbar(frame, &layout, app.graph_scroll_row, graph_focused, theme);
     if let Some(samples_area) = layout.samples {
-        draw_active_samples_inspector(frame, samples_area, app, active_samples.as_ref(), theme);
+        draw_active_samples_inspector(
+            frame,
+            samples_area,
+            app,
+            active_samples.as_ref(),
+            frame_times,
+            theme,
+        );
     }
 }
 
@@ -172,16 +201,21 @@ fn graph_y_axis_label_width_for_indices(app: &App, indices: &[usize]) -> usize {
         app.effective_graph_time_span_seconds(),
         app.effective_graph_time_offset_seconds(),
     );
+    let frame_times = graph_frame_times(app);
+    let frame_times = (!frame_times.is_empty()).then_some(frame_times.as_ref());
     indices
         .iter()
-        .filter_map(|index| app.graph_slot(*index))
-        .map(|slot| {
-            let samples = app.graph_slot_samples(slot);
-            let metric = slot.value_format();
-            let data = chart_points(samples.as_slice(), bounds, app.graph_time_reference_at());
-            let stats = graph_stats(samples.as_slice(), app.graph_slot_peak(slot), &data);
-            let (y_min, y_max) = graph_y_bounds(&stats, app.graph_y_axis_zero_min);
-            y_axis_label_width(&y_axis_labels(y_min, y_max, metric))
+        .filter_map(|index| app.graph_entry(*index))
+        .map(|entry| {
+            let data = prepare_graph_card_render_data(
+                app,
+                &entry.source,
+                entry.display_mode,
+                bounds,
+                app.graph_time_reference_at(),
+                frame_times,
+            );
+            y_axis_label_width(&y_axis_labels(data.y_min, data.y_max, data.metric))
         })
         .max()
         .unwrap_or(1)
@@ -190,13 +224,37 @@ fn graph_y_axis_label_width_for_indices(app: &App, indices: &[usize]) -> usize {
 fn prepare_graph_card_render_data(
     app: &App,
     slot: &GraphSlot,
+    display_mode: GraphDisplayMode,
     bounds: (i64, i64),
     time_reference_at: Option<DateTime<Local>>,
     frame_times: Option<&[DateTime<Local>]>,
 ) -> GraphCardRenderData {
     let samples = app.graph_slot_samples(slot);
     let metric = slot.value_format();
-    let segments = chart_segments(&samples, bounds, time_reference_at, frame_times);
+    let display_samples = (display_mode == GraphDisplayMode::MovingAverage5)
+        .then(|| moving_average_samples(&samples, frame_times));
+    let plotted_samples = display_samples.as_deref().unwrap_or(&samples);
+    let segment_frame_times = match display_mode {
+        GraphDisplayMode::Raw => {
+            (!app.log_view_frame_times.is_empty()).then_some(app.log_view_frame_times.as_slice())
+        }
+        GraphDisplayMode::MovingAverage5 => frame_times,
+    };
+    let segments = if display_mode == GraphDisplayMode::MovingAverage5 {
+        chart_segments_preserving_sample_gaps(
+            plotted_samples,
+            bounds,
+            time_reference_at,
+            segment_frame_times,
+        )
+    } else {
+        chart_segments(
+            plotted_samples,
+            bounds,
+            time_reference_at,
+            segment_frame_times,
+        )
+    };
     let stats = graph_stats_for_values(
         &samples,
         app.graph_slot_peak(slot),
@@ -205,6 +263,8 @@ fn prepare_graph_card_render_data(
     let (y_min, y_max) = graph_y_bounds(&stats, app.graph_y_axis_zero_min);
     GraphCardRenderData {
         samples,
+        display_samples,
+        display_mode,
         metric,
         bounds,
         segments,
@@ -253,8 +313,10 @@ fn render_graph_card(
         draw_graph_content(
             frame,
             card.plot,
-            &data.samples,
+            data.plotted_samples(),
             data.metric,
+            data.display_mode,
+            app.log_view_interval_seconds,
             selected_sample_time,
             app.graph_time_reference_at(),
             data.bounds,
@@ -266,6 +328,18 @@ fn render_graph_card(
             y_label_width,
         );
     }
+    let display_mode_label = app
+        .graph_entry_by_id(card.id)
+        .map(|entry| entry.display_mode.button_label())
+        .unwrap_or("[RAW]");
+    frame.render_widget(
+        Paragraph::new(format!(" {display_mode_label:<5} ")).style(graph_button_style(
+            theme,
+            app.graph_hovered_target == Some(GraphHoverTarget::DisplayMode(card.id)),
+            true,
+        )),
+        card.display_mode,
+    );
     frame.render_widget(
         Paragraph::new(format!(" {} ", card.remove_label)).style(graph_button_style(
             theme,
@@ -316,6 +390,7 @@ fn draw_active_samples_inspector(
     area: Rect,
     app: &App,
     samples: &[GraphSample],
+    frame_times: Option<&[DateTime<Local>]>,
     theme: Theme,
 ) {
     let (Some(index), Some(entry)) = (
@@ -353,6 +428,7 @@ fn draw_active_samples_inspector(
         theme,
         true,
         app.show_sample_delta,
+        frame_times,
     );
     render_samples_scrollbar(
         frame,
@@ -419,6 +495,7 @@ fn draw_samples_subpanel(
     theme: Theme,
     show_base_summary: bool,
     show_delta: bool,
+    frame_times: Option<&[DateTime<Local>]>,
 ) -> SampleViewport {
     let inner = area;
     let metric_header_style = Style::default()
@@ -520,8 +597,8 @@ fn draw_samples_subpanel(
         comparison,
         theme,
         show_base_summary,
-        app.log_view_interval_seconds
-            .filter(|interval| *interval > 1),
+        app.log_view_interval_seconds,
+        frame_times,
     );
     let spacer_lines = DETAILS_SAMPLES_SUMMARY_SPACER_HEIGHT as usize;
     while lines.len() + spacer_lines + summary_lines.len() < content_height {
@@ -695,6 +772,8 @@ fn draw_graph_content(
     area: Rect,
     samples: &[GraphSample],
     metric: GraphValueFormat,
+    display_mode: GraphDisplayMode,
+    aggregate_interval_seconds: Option<u64>,
     selected_sample_time: Option<DateTime<Local>>,
     time_reference_at: Option<DateTime<Local>>,
     bounds: (i64, i64),
@@ -798,7 +877,9 @@ fn draw_graph_content(
         .and(selected_sample_time)
         .and_then(|time| sample_index_at_time(samples, time))
         .and_then(|index| samples.get(index))
-        .map(|sample| format_metric_sample_value(sample, metric));
+        .and_then(|sample| {
+            format_graph_cursor_value(sample, metric, display_mode, aggregate_interval_seconds)
+        });
     let top_labels = Paragraph::new(graph_top_label_line(
         layout[0].width as usize,
         y_label_width,
@@ -989,6 +1070,31 @@ fn format_metric_sample_value(sample: &GraphSample, metric: GraphValueFormat) ->
         .unwrap_or_else(|| "--".to_string())
 }
 
+fn moving_average_label(aggregate_interval_seconds: Option<u64>) -> String {
+    aggregate_interval_seconds
+        .map(|interval| format!("MA5 (5×{interval}s avg)"))
+        .unwrap_or_else(|| "MA5".to_string())
+}
+
+fn format_graph_cursor_value(
+    sample: &GraphSample,
+    metric: GraphValueFormat,
+    display_mode: GraphDisplayMode,
+    aggregate_interval_seconds: Option<u64>,
+) -> Option<String> {
+    let value = metric_value(sample, metric)?;
+    let value = format_metric_exact_value(value, metric);
+    Some(match display_mode {
+        GraphDisplayMode::Raw => value,
+        GraphDisplayMode::MovingAverage5 => {
+            format!(
+                "{}: {value}",
+                moving_average_label(aggregate_interval_seconds)
+            )
+        }
+    })
+}
+
 fn sample_max_line(
     samples: &[GraphSample],
     metric: GraphValueFormat,
@@ -996,6 +1102,7 @@ fn sample_max_line(
     aggregate_interval_seconds: Option<u64>,
 ) -> Line<'static> {
     let label = aggregate_interval_seconds
+        .filter(|interval| *interval > 1)
         .map(|interval| format!("Max ({interval}s avg)"))
         .unwrap_or_else(|| "Max".to_string());
     let Some((sample, value)) = sample_max(samples, metric) else {
@@ -1022,6 +1129,7 @@ fn sample_summary_lines(
     theme: Theme,
     show_base_summary: bool,
     aggregate_interval_seconds: Option<u64>,
+    frame_times: Option<&[DateTime<Local>]>,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     if show_base_summary {
@@ -1037,6 +1145,7 @@ fn sample_summary_lines(
             metric,
             theme,
             aggregate_interval_seconds,
+            frame_times,
         ));
     }
     lines.extend(sample_ab_summary_lines(comparison, samples, metric, theme));
@@ -1051,11 +1160,10 @@ fn sample_moving_average_line(
     metric: GraphValueFormat,
     theme: Theme,
     aggregate_interval_seconds: Option<u64>,
+    frame_times: Option<&[DateTime<Local>]>,
 ) -> Line<'static> {
-    let label = aggregate_interval_seconds
-        .map(|interval| format!("MA5 (5×{interval}s)"))
-        .unwrap_or_else(|| "MA5".to_string());
-    let Some((captured_at, value)) = sample_moving_average(samples, selected, metric) else {
+    let label = moving_average_label(aggregate_interval_seconds);
+    let Some((captured_at, value)) = sample_moving_average(samples, selected, frame_times) else {
         return Line::from(Span::styled(
             format!("{label}: --"),
             Style::default().fg(theme.muted),
@@ -1074,19 +1182,75 @@ fn sample_moving_average_line(
 fn sample_moving_average(
     samples: &[GraphSample],
     selected: usize,
-    metric: GraphValueFormat,
+    frame_times: Option<&[DateTime<Local>]>,
 ) -> Option<(DateTime<Local>, f64)> {
     let selected_sample = samples.get(selected)?;
-    let start = selected.saturating_sub(4);
-    let mut total = 0.0;
-    let mut count = 0;
-    for sample in &samples[start..=selected] {
-        if let Some(value) = metric_value(sample, metric) {
-            total += value;
-            count += 1;
+    moving_average_samples(samples, frame_times)
+        .into_iter()
+        .find(|sample| sample.captured_at == selected_sample.captured_at)
+        .and_then(|sample| sample.value.map(|value| (sample.captured_at, value)))
+}
+
+#[derive(Default)]
+struct MovingAverageWindow {
+    values: [f64; 5],
+    len: usize,
+    next: usize,
+    total: f64,
+}
+
+impl MovingAverageWindow {
+    fn update(&mut self, value: Option<f64>) -> Option<f64> {
+        let Some(value) = value else {
+            *self = Self::default();
+            return None;
+        };
+        if self.len < self.values.len() {
+            self.values[self.len] = value;
+            self.total += value;
+            self.len += 1;
+        } else {
+            self.total -= self.values[self.next];
+            self.values[self.next] = value;
+            self.total += value;
+            self.next = (self.next + 1) % self.values.len();
         }
+        (self.len == self.values.len()).then_some(self.total / self.values.len() as f64)
     }
-    (count > 0).then_some((selected_sample.captured_at, total / f64::from(count)))
+}
+
+fn moving_average_samples(
+    samples: &[GraphSample],
+    frame_times: Option<&[DateTime<Local>]>,
+) -> Vec<GraphSample> {
+    let mut window = MovingAverageWindow::default();
+    let Some(frame_times) = frame_times.filter(|times| !times.is_empty()) else {
+        return samples
+            .iter()
+            .map(|sample| GraphSample {
+                captured_at: sample.captured_at,
+                value: window.update(sample.value),
+            })
+            .collect();
+    };
+
+    let mut sample_index = 0;
+    frame_times
+        .iter()
+        .map(|captured_at| {
+            while sample_index < samples.len() && samples[sample_index].captured_at < *captured_at {
+                sample_index += 1;
+            }
+            let value = samples
+                .get(sample_index)
+                .filter(|sample| sample.captured_at == *captured_at)
+                .and_then(|sample| sample.value);
+            GraphSample {
+                captured_at: *captured_at,
+                value: window.update(value),
+            }
+        })
+        .collect()
 }
 
 fn sample_max(samples: &[GraphSample], metric: GraphValueFormat) -> Option<(&GraphSample, f64)> {
@@ -1453,6 +1617,7 @@ struct GraphStats {
     scale_max: f64,
 }
 
+#[cfg(test)]
 fn graph_stats(samples: &[GraphSample], peak: Option<f64>, points: &[(f64, f64)]) -> GraphStats {
     graph_stats_for_values(samples, peak, points.iter().map(|(_, value)| *value))
 }
@@ -1899,6 +2064,22 @@ fn chart_segments(
     segments
 }
 
+fn chart_segments_preserving_sample_gaps(
+    samples: &[GraphSample],
+    bounds: (i64, i64),
+    time_reference_at: Option<DateTime<Local>>,
+    frame_times: Option<&[DateTime<Local>]>,
+) -> Vec<Vec<(f64, f64)>> {
+    if frame_times.is_some_and(|times| !times.is_empty()) {
+        return chart_segments(samples, bounds, time_reference_at, frame_times);
+    }
+    let sample_times = samples
+        .iter()
+        .map(|sample| sample.captured_at)
+        .collect::<Vec<_>>();
+    chart_segments(samples, bounds, time_reference_at, Some(&sample_times))
+}
+
 fn lift_floor_points_for_plot(points: &[(f64, f64)], y_min: f64, y_max: f64) -> Vec<(f64, f64)> {
     let floor_y = floor_plot_value(y_min, y_max);
     points
@@ -2159,13 +2340,13 @@ mod tests {
         let refs = samples.to_vec();
 
         assert_eq!(
-            sample_moving_average(&refs, 5, GraphValueFormat::Count),
+            sample_moving_average(&refs, 5, None),
             Some((base + chrono::Duration::seconds(5), 50.0))
         );
     }
 
     #[test]
-    fn sample_moving_average_uses_partial_window_and_skips_missing_values() {
+    fn sample_moving_average_requires_five_contiguous_available_values() {
         let base = chrono::Local
             .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
             .unwrap();
@@ -2176,33 +2357,9 @@ mod tests {
         ];
         let refs = samples.to_vec();
 
+        assert_eq!(sample_moving_average(&refs, 2, None), None);
         assert_eq!(
-            sample_moving_average(&refs, 2, GraphValueFormat::Count),
-            Some((base + chrono::Duration::seconds(2), 20.0))
-        );
-        assert_eq!(
-            sample_moving_average_line(&refs, 1, GraphValueFormat::Count, THEMES[0], None)
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<Vec<_>>()
-                .join(""),
-            "MA5: 10 @ 10:00:01"
-        );
-    }
-
-    #[test]
-    fn sample_moving_average_reports_missing_when_window_has_no_values() {
-        let now = chrono::Local::now();
-        let samples = [sample(now, None, None)];
-        let refs = samples.to_vec();
-
-        assert_eq!(
-            sample_moving_average(&refs, 0, GraphValueFormat::Count),
-            None
-        );
-        assert_eq!(
-            sample_moving_average_line(&refs, 0, GraphValueFormat::Count, THEMES[0], None)
+            sample_moving_average_line(&refs, 1, GraphValueFormat::Count, THEMES[0], None, None)
                 .spans
                 .iter()
                 .map(|span| span.content.as_ref())
@@ -2213,11 +2370,203 @@ mod tests {
     }
 
     #[test]
+    fn sample_moving_average_reports_missing_when_window_has_no_values() {
+        let now = chrono::Local::now();
+        let samples = [sample(now, None, None)];
+        let refs = samples.to_vec();
+
+        assert_eq!(sample_moving_average(&refs, 0, None), None);
+        assert_eq!(
+            sample_moving_average_line(&refs, 0, GraphValueFormat::Count, THEMES[0], None, None)
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<Vec<_>>()
+                .join(""),
+            "MA5: --"
+        );
+    }
+
+    #[test]
+    fn moving_average_warms_up_rolls_and_stays_linear_at_history_capacity() {
+        let base = chrono::Local
+            .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
+            .unwrap();
+        let samples = (0..7_200)
+            .map(|index| GraphSample {
+                captured_at: base + chrono::Duration::seconds(index as i64),
+                value: Some(index as f64),
+            })
+            .collect::<Vec<_>>();
+
+        let averaged = moving_average_samples(&samples, None);
+
+        assert_eq!(averaged.len(), samples.len());
+        assert!(averaged[..4].iter().all(|sample| sample.value.is_none()));
+        assert_eq!(averaged[4].value, Some(2.0));
+        assert_eq!(averaged[5].value, Some(3.0));
+        assert_eq!(averaged.last().unwrap().value, Some(7_197.0));
+
+        let total_points = (0..16)
+            .map(|_| moving_average_samples(&samples, None).len())
+            .sum::<usize>();
+        assert_eq!(total_points, 16 * 7_200);
+    }
+
+    #[test]
+    fn moving_average_resets_for_missing_values_and_missing_frames() {
+        let base = chrono::Local
+            .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
+            .unwrap();
+        let frame_times = (0..9)
+            .map(|index| base + chrono::Duration::seconds(index))
+            .collect::<Vec<_>>();
+        let samples = frame_times
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != 3)
+            .map(|(index, captured_at)| GraphSample {
+                captured_at: *captured_at,
+                value: Some(index as f64),
+            })
+            .collect::<Vec<_>>();
+
+        let averaged = moving_average_samples(&samples, Some(&frame_times));
+
+        assert_eq!(averaged[3].value, None);
+        assert!(averaged[4..8].iter().all(|sample| sample.value.is_none()));
+        assert_eq!(averaged[8].value, Some(6.0));
+
+        let mut unavailable = samples;
+        unavailable.insert(
+            3,
+            GraphSample {
+                captured_at: frame_times[3],
+                value: None,
+            },
+        );
+        let unavailable_average = moving_average_samples(&unavailable, Some(&frame_times));
+        assert_eq!(unavailable_average, averaged);
+    }
+
+    #[test]
+    fn moving_average_segments_never_connect_across_a_gap() {
+        let base = chrono::Local
+            .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
+            .unwrap();
+        let samples = (0..11)
+            .map(|index| GraphSample {
+                captured_at: base + chrono::Duration::seconds(index),
+                value: (index != 5).then_some(index as f64),
+            })
+            .collect::<Vec<_>>();
+        let averaged = moving_average_samples(&samples, None);
+
+        assert_eq!(
+            chart_segments_preserving_sample_gaps(
+                &averaged,
+                (-60, 0),
+                samples.last().map(|sample| sample.captured_at),
+                None,
+            ),
+            vec![vec![(-6.0, 2.0)], vec![(0.0, 8.0)]]
+        );
+    }
+
+    #[test]
+    fn moving_average_cursor_formats_cover_graph_metric_kinds() {
+        let sample = GraphSample {
+            captured_at: chrono::Local::now(),
+            value: Some(30.0),
+        };
+        for (metric, expected) in [
+            (GraphValueFormat::Bytes, "MA5: 30"),
+            (GraphValueFormat::Count, "MA5: 30"),
+            (GraphValueFormat::BytesPerSec, "MA5: 30/s"),
+            (GraphValueFormat::Percent, "MA5: 30.0%"),
+            (GraphValueFormat::QueueLength, "MA5: 30.0"),
+        ] {
+            assert_eq!(
+                format_graph_cursor_value(&sample, metric, GraphDisplayMode::MovingAverage5, None,)
+                    .as_deref(),
+                Some(expected)
+            );
+        }
+        assert_eq!(
+            format_graph_cursor_value(
+                &sample,
+                GraphValueFormat::Count,
+                GraphDisplayMode::Raw,
+                None,
+            )
+            .as_deref(),
+            Some("30")
+        );
+    }
+
+    #[test]
+    fn moving_average_log_labels_disclose_every_supported_frame_interval() {
+        let sample = GraphSample {
+            captured_at: chrono::Local::now(),
+            value: Some(30.0),
+        };
+        for interval in [1, 2, 5, 10] {
+            assert_eq!(
+                format_graph_cursor_value(
+                    &sample,
+                    GraphValueFormat::Count,
+                    GraphDisplayMode::MovingAverage5,
+                    Some(interval),
+                )
+                .unwrap(),
+                format!("MA5 (5×{interval}s avg): 30")
+            );
+        }
+    }
+
+    #[test]
+    fn moving_average_y_axis_uses_only_displayed_values() {
+        let base = chrono::Local
+            .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
+            .unwrap();
+        let samples = [0.0, 100.0, 0.0, 100.0, 0.0]
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| GraphSample {
+                captured_at: base + chrono::Duration::seconds(index as i64),
+                value: Some(value),
+            })
+            .collect::<Vec<_>>();
+        let raw_points = chart_points(&samples, (-60, 0), samples.last().map(|s| s.captured_at));
+        let averaged = moving_average_samples(&samples, None);
+        let averaged_points =
+            chart_points(&averaged, (-60, 0), samples.last().map(|s| s.captured_at));
+        let raw_stats =
+            graph_stats_for_values(&samples, None, raw_points.iter().map(|(_, value)| *value));
+        let averaged_stats = graph_stats_for_values(
+            &samples,
+            None,
+            averaged_points.iter().map(|(_, value)| *value),
+        );
+
+        assert_eq!(raw_stats.window_max, Some(100.0));
+        assert_eq!(averaged_stats.window_min, Some(40.0));
+        assert_eq!(averaged_stats.window_max, Some(40.0));
+        assert!(graph_y_bounds(&averaged_stats, false).1 < graph_y_bounds(&raw_stats, false).1);
+    }
+
+    #[test]
     fn aggregate_sample_summaries_expose_interval_semantics() {
         let now = chrono::Local
             .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
             .unwrap();
-        let samples = [sample(now, Some(30), None)];
+        let samples = [
+            sample(now - chrono::Duration::seconds(40), Some(10), None),
+            sample(now - chrono::Duration::seconds(30), Some(20), None),
+            sample(now - chrono::Duration::seconds(20), Some(30), None),
+            sample(now - chrono::Duration::seconds(10), Some(40), None),
+            sample(now, Some(50), None),
+        ];
         let refs = samples.to_vec();
         let max = sample_max_line(&refs, GraphValueFormat::Count, THEMES[0], Some(10))
             .spans
@@ -2225,16 +2574,22 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<Vec<_>>()
             .join("");
-        let average =
-            sample_moving_average_line(&refs, 0, GraphValueFormat::Count, THEMES[0], Some(10))
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<Vec<_>>()
-                .join("");
+        let average = sample_moving_average_line(
+            &refs,
+            4,
+            GraphValueFormat::Count,
+            THEMES[0],
+            Some(10),
+            None,
+        )
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<Vec<_>>()
+        .join("");
 
-        assert_eq!(max, "Max (10s avg): 30 @ 10:00:00");
-        assert_eq!(average, "MA5 (5×10s): 30 @ 10:00:00");
+        assert_eq!(max, "Max (10s avg): 50 @ 10:00:00");
+        assert_eq!(average, "MA5 (5×10s avg): 30 @ 10:00:00");
     }
 
     #[test]

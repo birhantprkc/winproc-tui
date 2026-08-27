@@ -7,7 +7,8 @@ use super::support::{
 };
 use crate::app;
 use crate::app::{
-    DetailsMetric, FocusedPanel, GraphHoverTarget, GraphSlot, GraphSlotLayout, handle_mouse_event,
+    DetailsMetric, FocusedPanel, GraphDisplayMode, GraphHoverTarget, GraphSlot, GraphSlotLayout,
+    handle_mouse_event,
 };
 use crate::model::{
     MetricColumn, ProcessIdentity, SortColumn, SortDirection, SortSpec, SystemMetric,
@@ -606,6 +607,102 @@ fn graph_remove_button_highlights_on_hover_and_clears_when_pointer_leaves() {
 
     app.on_mouse(mouse_move(card.plot.x, card.plot.y), screen);
     assert_eq!(app.graph_hovered_target, None);
+}
+
+#[test]
+fn graph_mode_button_targets_its_stable_id_without_activating_the_card() {
+    let mut app = make_test_app(1, 10);
+    let ids = (0..3)
+        .map(|index| add_test_graph(&mut app, index))
+        .collect::<Vec<_>>();
+    app.graph_entries.swap(0, 2);
+    assert!(app.set_active_graph(ids[0]));
+    app.show_samples_panel = false;
+    app.graph_slot_layout = GraphSlotLayout::ThreeColumns;
+    app.details_sample_selected = 7;
+    app.graph_time_offset_seconds = 30;
+    app.ab_comparison = Some(app::AbComparison { a: None, b: None });
+    let screen = Rect::new(0, 0, 220, 60);
+    app::sync_layout_state(&mut app, screen);
+    let details = main_panel_areas_for_app(screen, &app).details.unwrap();
+    let layout = ui::layout::graph_workspace_layout(details, &app);
+    let card = layout
+        .graph_cards
+        .iter()
+        .find(|card| card.id == ids[1])
+        .expect("inactive reordered Graph card");
+    assert!(card.display_mode.right() <= card.remove.x);
+
+    app.on_mouse(
+        mouse_move(card.display_mode.x + 2, card.display_mode.y),
+        screen,
+    );
+
+    assert_eq!(
+        app.graph_hovered_target,
+        Some(GraphHoverTarget::DisplayMode(ids[1]))
+    );
+    let hovered = render_app_to_buffer(&app, screen.width, screen.height);
+    assert_eq!(
+        hovered[(card.display_mode.x + 2, card.display_mode.y)].bg,
+        app.theme().focus_surface
+    );
+    assert!(
+        hovered[(card.display_mode.x + 2, card.display_mode.y)]
+            .modifier
+            .contains(Modifier::BOLD)
+    );
+
+    app.on_mouse(
+        left_click(card.display_mode.x + 2, card.display_mode.y),
+        screen,
+    );
+
+    assert_eq!(app.active_graph_id, Some(ids[0]));
+    assert_eq!(app.details_sample_selected, 7);
+    assert_eq!(app.graph_time_offset_seconds, 30);
+    assert_eq!(
+        app.graph_entry_by_id(ids[1]).unwrap().display_mode,
+        GraphDisplayMode::MovingAverage5
+    );
+    assert_eq!(
+        app.graph_entry_by_id(ids[0]).unwrap().display_mode,
+        GraphDisplayMode::Raw
+    );
+    let rendered = render_app_to_buffer(&app, screen.width, screen.height);
+    let mode_text = (card.display_mode.x..card.display_mode.right())
+        .map(|x| rendered[(x, card.display_mode.y)].symbol())
+        .collect::<String>();
+    let remove_text = (card.remove.x..card.remove.right())
+        .map(|x| rendered[(x, card.remove.y)].symbol())
+        .collect::<String>();
+    assert!(mode_text.contains("[MA]"), "{mode_text:?}");
+    assert!(remove_text.contains("[x]"), "{remove_text:?}");
+}
+
+#[test]
+fn narrow_graph_card_keeps_mode_and_remove_buttons_distinct() {
+    let mut app = make_test_app(1, 10);
+    add_test_graph(&mut app, 0);
+    app.show_samples_panel = false;
+    let screen = Rect::new(0, 0, 80, 35);
+    app::sync_layout_state(&mut app, screen);
+    let details = main_panel_areas_for_app(screen, &app).details.unwrap();
+    let layout = ui::layout::graph_workspace_layout(details, &app);
+    let card = &layout.graph_cards[0];
+    let rendered = render_app_to_buffer(&app, screen.width, screen.height);
+    let mode_text = (card.display_mode.x..card.display_mode.right())
+        .map(|x| rendered[(x, card.display_mode.y)].symbol())
+        .collect::<String>();
+    let remove_text = (card.remove.x..card.remove.right())
+        .map(|x| rendered[(x, card.remove.y)].symbol())
+        .collect::<String>();
+
+    assert_eq!(card.display_mode.width, 7);
+    assert_eq!(card.remove.width, 5);
+    assert!(card.display_mode.right() <= card.remove.x);
+    assert!(mode_text.contains("[RAW]"), "{mode_text:?}");
+    assert!(remove_text.contains("[x]"), "{remove_text:?}");
 }
 
 #[test]
@@ -1306,6 +1403,46 @@ fn graph_current_line_label_draws_selected_value_in_accent() {
         }
     }
     assert!(found_accent_value, "current value label should use accent");
+}
+
+#[test]
+fn moving_average_graph_labels_smoothed_cursor_but_keeps_raw_ab_and_samples() {
+    let mut app = make_test_app(1, 10);
+    assign_private_graph(&mut app);
+    app.focused_panel = FocusedPanel::DetailsGraph;
+    let base = Local.with_ymd_and_hms(2026, 5, 26, 10, 0, 0).unwrap();
+    for (seconds, value) in [(0, 100), (1, 200), (2, 300), (3, 400), (4, 500)] {
+        app.snapshot.captured_at = base + chrono::Duration::seconds(seconds);
+        app.snapshot.processes[0].private_bytes = Some(value);
+        app.process_history.record_snapshot(
+            app.snapshot.captured_at,
+            &app.snapshot.processes,
+            &app.normalized_watch_names,
+        );
+        app.system_history.record_snapshot(&app.snapshot);
+    }
+    app.select_details_sample_oldest();
+    app.on_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE))
+        .unwrap();
+    app.select_details_sample_latest();
+    app.on_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE))
+        .unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE))
+        .unwrap();
+
+    let screen = Rect::new(0, 0, 180, 55);
+    let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+    let graph = details_graph_area_for_app(screen, &app).unwrap();
+    let rendered = buffer_to_text(&buffer);
+
+    assert!(
+        find_text_position_in_area(&buffer, graph, "MA5: 300").is_some(),
+        "{rendered}"
+    );
+    assert!(rendered.contains("[MA]"), "{rendered}");
+    assert!(rendered.contains("B-A: +400"), "{rendered}");
+    assert!(rendered.contains("Max: 500"), "{rendered}");
+    assert!(rendered.contains("MA5: 300"), "{rendered}");
 }
 
 #[test]
