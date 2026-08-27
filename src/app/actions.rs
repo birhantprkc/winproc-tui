@@ -21,7 +21,8 @@ use crate::{
         gpu_panel_area_for_screen, graph_reorder_index_at, graph_reorder_scrollbar_area,
         help_scrollbar_area,
         layout::{
-            GraphWorkspaceLayout, ProcessTableLayout, details_graph_chart_area,
+            DetailsSamplesSummaryVisibility, GraphWorkspaceLayout, ProcessTableLayout,
+            details_graph_chart_area, details_samples_summary_visibility,
             graph_shared_control_areas, graph_workspace_layout,
         },
         log_list_index_at, main_panel_areas_for_app, memory_metric_at_position,
@@ -2626,9 +2627,7 @@ impl App {
         };
         let rows = details_sample_page_size_for_samples_area(
             area,
-            self.active_ab_comparison().is_some(),
-            self.active_ab_comparison()
-                .is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some()),
+            details_samples_summary_visibility(self.active_ab_comparison()),
             self.active_graph_slot_count() <= 1,
         );
         let Some(view_state) = self.details_sample_view_state_for_slot(slot_index, rows) else {
@@ -2910,9 +2909,7 @@ fn samples_scrollbar_area_at(
     let samples = active_samples_area_for_screen(app, screen_area)?;
     let rows = details_sample_page_size_for_samples_area(
         samples,
-        app.active_ab_comparison().is_some(),
-        app.active_ab_comparison()
-            .is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some()),
+        details_samples_summary_visibility(app.active_ab_comparison()),
         true,
     );
     let total = app
@@ -2953,14 +2950,12 @@ fn graph_shared_control_areas_for_app(
 
 fn details_sample_page_size_for_samples_area(
     samples: Rect,
-    show_ab_summary: bool,
-    show_ab_range_summary: bool,
+    summary_visibility: DetailsSamplesSummaryVisibility,
     show_base_summary: bool,
 ) -> usize {
     crate::ui::layout::details_samples_row_capacity(
         samples.height,
-        show_ab_summary,
-        show_ab_range_summary,
+        summary_visibility,
         show_base_summary,
     )
 }

@@ -22,7 +22,10 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use crate::ui::{
     column_picker_page_size_for_screen, cpu_core_dialog_page_size_for_screen, draw,
     graph_reorder_page_size_for_screen, help_page_size_for_screen,
-    layout::{MainPanelAreas, details_samples_row_capacity, graph_workspace_layout},
+    layout::{
+        MainPanelAreas, details_samples_row_capacity, details_samples_summary_visibility,
+        graph_workspace_layout,
+    },
     main_panel_areas_for_app, process_info_page_size_for_screen,
     tracked_lists_page_size_for_screen,
 };
@@ -302,8 +305,7 @@ fn details_samples_page_size_for_app(panels: &MainPanelAreas, app: &App) -> usiz
     let comparison = app.active_ab_comparison();
     details_samples_row_capacity(
         samples.height.saturating_sub(2),
-        comparison.is_some(),
-        comparison.is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some()),
+        details_samples_summary_visibility(comparison),
         true,
     )
 }

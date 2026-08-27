@@ -1445,7 +1445,7 @@ fn moving_average_graph_labels_smoothed_cursor_but_keeps_raw_ab_and_samples() {
     assert!(rendered.contains("Max: 500"), "{rendered}");
     assert!(rendered.contains("MA5: 300"), "{rendered}");
     for expected in [
-        "Range (raw) Min: 100 @ 10:00:00",
+        "Min: 100 @ 10:00:00",
         "Max: 500 @ 10:00:04",
         "Avg: 300",
         "Samples: 5/5  Missing: 0",
@@ -1511,7 +1511,7 @@ fn ab_range_statistics_recalculate_per_graph_without_merging_reused_pid_identiti
     assert!(app.set_active_graph(old_graph));
     let old_rendered = render_app_to_text(&app, screen.width, screen.height);
     for expected in [
-        "Range (raw) Min: 10 @ 10:00:00",
+        "Min: 10 @ 10:00:00",
         "Max: 20 @ 10:00:01",
         "Avg: 15",
         "Samples: 2/4  Missing: 2",
@@ -1522,7 +1522,7 @@ fn ab_range_statistics_recalculate_per_graph_without_merging_reused_pid_identiti
     assert!(app.set_active_graph(new_graph));
     let new_rendered = render_app_to_text(&app, screen.width, screen.height);
     for expected in [
-        "Range (raw) Min: 100 @ 10:00:02",
+        "Min: 100 @ 10:00:02",
         "Max: 200 @ 10:00:03",
         "Avg: 150",
         "Samples: 2/4  Missing: 2",
@@ -1558,13 +1558,83 @@ fn ab_range_summary_keeps_samples_accessible_on_narrow_and_short_screens() {
         let rendered = render_app_to_text(&app, screen.width, screen.height);
         assert!(rendered.contains("A/B Time"), "{screen:?}\n{rendered}");
         assert!(
-            rendered.contains("Range (raw) Min: 10 @ 10:00:00"),
+            rendered.contains("Min: 10 @ 10:00:00"),
             "{screen:?}\n{rendered}"
         );
         assert!(
             rendered.contains("Samples: 2/2  Missing: 0"),
             "{screen:?}\n{rendered}"
         );
+    }
+}
+
+#[test]
+fn ab_range_summary_survives_delta_toggle_at_reported_size() {
+    let mut app = make_test_app(30, 10);
+    let identity = app.selected_visible_process_identity().unwrap();
+    for metric in [
+        DetailsMetric::Private,
+        DetailsMetric::Workset,
+        DetailsMetric::WorksetPrivate,
+        DetailsMetric::WorksetShareable,
+    ] {
+        assert!(app.add_or_reveal_graph_source(
+            GraphSlot::process(identity.clone(), metric),
+            FocusedPanel::Processes,
+        ));
+    }
+    let base = Local.with_ymd_and_hms(2026, 5, 26, 8, 0, 0).unwrap();
+    for (seconds, value) in [(0, 242_569_210), (1, 242_655_232)] {
+        app.snapshot.captured_at = base + chrono::Duration::seconds(seconds);
+        app.snapshot.processes[0].private_bytes = Some(value);
+        app.snapshot.processes[0].workset_bytes = Some(value);
+        app.snapshot.processes[0].workset_private_bytes = Some(value);
+        app.snapshot.processes[0].workset_shareable_bytes = Some(value);
+        app.process_history.record_snapshot(
+            app.snapshot.captured_at,
+            &app.snapshot.processes,
+            &app.normalized_watch_names,
+        );
+        app.system_history.record_snapshot(&app.snapshot);
+    }
+    app.ab_comparison = Some(app::AbComparison {
+        a: Some(app::AbComparisonPoint { captured_at: base }),
+        b: Some(app::AbComparisonPoint {
+            captured_at: base + chrono::Duration::seconds(1),
+        }),
+    });
+    app.focused_panel = FocusedPanel::DetailsGraph;
+    app.show_sample_delta = false;
+    let screen = Rect::new(0, 0, 140, 45);
+
+    for show_delta in [false, true, false] {
+        if app.show_sample_delta != show_delta {
+            app.on_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE))
+                .unwrap();
+        }
+        app::sync_layout_state(&mut app, screen);
+        let details = main_panel_areas_for_app(screen, &app).details.unwrap();
+        let layout = ui::layout::graph_workspace_layout(details, &app);
+        let rendered = render_app_to_text(&app, screen.width, screen.height);
+        assert_eq!(app.show_sample_delta, show_delta);
+        assert!(
+            layout
+                .graph_cards
+                .iter()
+                .any(|card| Some(card.id) == app.active_graph_id),
+            "Delta={show_delta} active Graph should remain visible: {layout:?}"
+        );
+        for expected in [
+            "Min: 242,569,210 @ 08:00:00",
+            "Max: 242,655,232 @ 08:00:01",
+            "Avg: 242,612,221",
+            "Samples: 2/2  Missing: 0",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "Delta={show_delta}\n{rendered}"
+            );
+        }
     }
 }
 

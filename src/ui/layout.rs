@@ -6,7 +6,8 @@ use ratatui::{
 use crate::{
     App,
     app::{
-        GRAPH_SLOT_MIN_HEIGHT, GRAPH_SLOT_MIN_WIDTH, GraphId, GraphSlotLayout, ProcessPanelHeight,
+        AbComparison, GRAPH_SLOT_MIN_HEIGHT, GRAPH_SLOT_MIN_WIDTH, GraphId, GraphSlotLayout,
+        ProcessPanelHeight,
     },
 };
 
@@ -26,7 +27,8 @@ pub(crate) const DETAILS_SAMPLES_MAX_WIDTH: u16 = 50;
 pub(crate) const DETAILS_SAMPLES_MAX_WIDTH_NO_DELTA: u16 = 33;
 const DETAILS_SAMPLES_MIN_WIDTH: u16 = 30;
 const DETAILS_SAMPLES_MIN_HEIGHT: u16 = 8;
-const DETAILS_SAMPLES_AB_RANGE_MIN_HEIGHT: u16 = 11;
+const DETAILS_SAMPLES_FRAME_HEIGHT: u16 = 2;
+const DETAILS_SAMPLES_MIN_ROW_HEIGHT: u16 = 1;
 const GRAPH_WORKSPACE_INSET_SIZE: u16 = 2;
 const GRAPH_WORKSPACE_MIN_HEIGHT: u16 = 5;
 const PROCESS_TABLE_CHROME_HEIGHT: u16 = 3;
@@ -359,14 +361,8 @@ fn graph_workspace_content_areas(
     }
 
     let samples_max_width = details_samples_max_width(app.show_sample_delta);
-    let samples_min_height = if app
-        .active_ab_comparison()
-        .is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some())
-    {
-        DETAILS_SAMPLES_AB_RANGE_MIN_HEIGHT
-    } else {
-        DETAILS_SAMPLES_MIN_HEIGHT
-    };
+    let summary_visibility = details_samples_summary_visibility(app.active_ab_comparison());
+    let samples_min_height = details_samples_min_height(summary_visibility);
     let divider_width = 1;
     let available_width = content.width.saturating_sub(divider_width);
     let graph_slots_min_width = GRAPH_SLOT_MIN_WIDTH.saturating_add(GRAPH_WORKSPACE_INSET_SIZE);
@@ -627,17 +623,42 @@ pub(crate) fn details_samples_area_for_app(area: Rect, app: &App) -> Option<Rect
 
 pub(crate) fn details_samples_row_capacity(
     inner_height: u16,
-    show_ab_summary: bool,
-    show_ab_range_summary: bool,
+    summary_visibility: DetailsSamplesSummaryVisibility,
     show_base_summary: bool,
 ) -> usize {
-    details_samples_content_layout(
-        inner_height,
-        show_ab_summary,
-        show_ab_range_summary,
-        show_base_summary,
+    details_samples_content_layout(inner_height, summary_visibility, show_base_summary).row_capacity
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DetailsSamplesSummaryVisibility {
+    pub(crate) show_ab_summary: bool,
+    pub(crate) show_ab_range_summary: bool,
+}
+
+impl DetailsSamplesSummaryVisibility {
+    fn required_height(self) -> u16 {
+        u16::from(self.show_ab_summary) * DETAILS_SAMPLES_AB_SUMMARY_HEIGHT
+            + u16::from(self.show_ab_range_summary) * DETAILS_SAMPLES_AB_RANGE_SUMMARY_HEIGHT
+    }
+}
+
+pub(crate) fn details_samples_summary_visibility(
+    comparison: Option<&AbComparison>,
+) -> DetailsSamplesSummaryVisibility {
+    DetailsSamplesSummaryVisibility {
+        show_ab_summary: comparison.is_some(),
+        show_ab_range_summary: comparison
+            .is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some()),
+    }
+}
+
+fn details_samples_min_height(summary_visibility: DetailsSamplesSummaryVisibility) -> u16 {
+    DETAILS_SAMPLES_MIN_HEIGHT.max(
+        DETAILS_SAMPLES_FRAME_HEIGHT
+            + DETAILS_SAMPLES_HEADER_HEIGHT
+            + DETAILS_SAMPLES_MIN_ROW_HEIGHT
+            + summary_visibility.required_height(),
     )
-    .row_capacity
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -649,21 +670,10 @@ pub(crate) struct DetailsSamplesContentLayout {
 
 pub(crate) fn details_samples_content_layout(
     inner_height: u16,
-    show_ab_summary: bool,
-    show_ab_range_summary: bool,
+    summary_visibility: DetailsSamplesSummaryVisibility,
     request_base_summary: bool,
 ) -> DetailsSamplesContentLayout {
-    let ab = if show_ab_summary {
-        DETAILS_SAMPLES_AB_SUMMARY_HEIGHT
-    } else {
-        0
-    };
-    let ab_range = if show_ab_range_summary {
-        DETAILS_SAMPLES_AB_RANGE_SUMMARY_HEIGHT
-    } else {
-        0
-    };
-    let required_summary_height = ab + ab_range;
+    let required_summary_height = summary_visibility.required_height();
     let height_after_required_content = inner_height
         .saturating_sub(DETAILS_SAMPLES_HEADER_HEIGHT)
         .saturating_sub(1)
@@ -886,16 +896,28 @@ mod tests {
 
     #[test]
     fn short_samples_layout_keeps_one_row_and_the_complete_ab_range_summary() {
-        let layout = details_samples_content_layout(9, true, true, true);
+        let summary_visibility = DetailsSamplesSummaryVisibility {
+            show_ab_summary: true,
+            show_ab_range_summary: true,
+        };
+        let layout = details_samples_content_layout(9, summary_visibility, true);
 
         assert_eq!(layout.row_capacity, 1);
         assert!(!layout.show_base_summary);
         assert_eq!(layout.spacer_height, 0);
+        assert_eq!(details_samples_min_height(summary_visibility), 11);
     }
 
     #[test]
     fn tall_samples_layout_restores_base_summary_and_spacing() {
-        let layout = details_samples_content_layout(14, true, true, true);
+        let layout = details_samples_content_layout(
+            14,
+            DetailsSamplesSummaryVisibility {
+                show_ab_summary: true,
+                show_ab_range_summary: true,
+            },
+            true,
+        );
 
         assert_eq!(layout.row_capacity, 3);
         assert!(layout.show_base_summary);

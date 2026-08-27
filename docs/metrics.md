@@ -317,7 +317,7 @@ When both A and B are set, range statistics use the inclusive chronological inte
 
 `Min` and `Max` report the exact stored timestamp that produced each value. When multiple stored samples tie, the earliest captured timestamp in the interval is selected. `Avg` is the arithmetic mean of available values, formatted with the active Graph's metric format, and `Samples` is the available-value count. When Live, paused, or Log-view state provides its complete frame-time sequence, `Samples` also shows the expected frame count and `Missing` is `expected - available`.
 
-Live and paused-display statistics are labeled `Range (raw)`. Log-view statistics describe the stored Recording frames and are labeled with the session interval, such as `Range (10s avg)`. A longer Recording interval is not expanded into reconstructed one-second values, and a partial final aggregation window remains one stored frame.
+Live and paused-display statistics begin directly with `Min`; raw stored values are already the default for these views. Log-view statistics describe the stored Recording frames and prefix that line with the session interval, such as `Range (10s avg) Min`. A longer Recording interval is not expanded into reconstructed one-second values, and a partial final aggregation window remains one stored frame.
 
 ### Graph display smoothing
 

@@ -2164,6 +2164,8 @@ impl App {
         } else {
             "Delta hidden".to_string()
         };
+        self.sync_graph_layout_visibility();
+        self.reveal_active_graph();
     }
 
     pub(crate) fn toggle_graph_slot_layout(&mut self) {

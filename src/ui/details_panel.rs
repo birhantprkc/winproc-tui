@@ -27,8 +27,8 @@ use crate::{
         },
         layout::{
             GraphCardLayout, GraphSpanControlAreas, GraphWorkspaceLayout, details_graph_rows,
-            details_samples_content_layout, graph_shared_control_areas, graph_workspace_layout,
-            graph_workspace_title_label,
+            details_samples_content_layout, details_samples_summary_visibility,
+            graph_shared_control_areas, graph_workspace_layout, graph_workspace_title_label,
         },
         widgets::block::{graph_card_block, graph_workspace_block, panel_block_focused},
     },
@@ -518,14 +518,9 @@ fn draw_samples_subpanel(
     ])];
 
     let content_height = inner.height as usize;
-    let show_ab_range_summary =
-        comparison.is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some());
-    let content_layout = details_samples_content_layout(
-        inner.height,
-        comparison.is_some(),
-        show_ab_range_summary,
-        show_base_summary,
-    );
+    let summary_visibility = details_samples_summary_visibility(comparison);
+    let content_layout =
+        details_samples_content_layout(inner.height, summary_visibility, show_base_summary);
     let row_capacity = content_layout.row_capacity;
     let view_state = crate::app::DetailsSampleViewState {
         selected_index: selected.min(samples.len().saturating_sub(1)),
@@ -1503,9 +1498,9 @@ fn sample_ab_range_summary_lines(
     theme: Theme,
     aggregate_interval_seconds: Option<u64>,
 ) -> Vec<Line<'static>> {
-    let range_label = aggregate_interval_seconds
-        .map(|interval| format!("Range ({interval}s avg)"))
-        .unwrap_or_else(|| "Range (raw)".to_string());
+    let min_label = aggregate_interval_seconds
+        .map(|interval| format!("Range ({interval}s avg) Min"))
+        .unwrap_or_else(|| "Min".to_string());
     let sample_count = match (
         statistics.expected_frame_count,
         statistics.missing_frame_count,
@@ -1520,10 +1515,7 @@ fn sample_ab_range_summary_lines(
     };
     vec![
         Line::from(vec![
-            Span::styled(
-                format!("{range_label} Min: "),
-                Style::default().fg(theme.accent),
-            ),
+            Span::styled(format!("{min_label}: "), Style::default().fg(theme.accent)),
             Span::styled(
                 format!(
                     "{} @ {}",
@@ -3162,7 +3154,7 @@ mod tests {
             assert_eq!(
                 rendered[0],
                 format!(
-                    "Range (raw) Min: {} @ 10:00:00",
+                    "Min: {} @ 10:00:00",
                     format_metric_exact_value(10.0, metric)
                 )
             );
