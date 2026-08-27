@@ -335,11 +335,11 @@ const SAMPLES_ROWS: &[HelpItem] = &[
 const AB_ROWS: &[HelpItem] = &[
     HelpItem {
         key: "a",
-        label: "Set A at sample",
+        label: "Set A range endpoint",
     },
     HelpItem {
         key: "b",
-        label: "Set B at sample",
+        label: "Set B; show range statistics",
     },
     HelpItem {
         key: "Shift+A/B",

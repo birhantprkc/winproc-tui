@@ -26,9 +26,8 @@ use crate::{
             format_io_rate, format_mb_per_sec, format_signed_integer, format_signed_io_rate,
         },
         layout::{
-            DETAILS_SAMPLES_SUMMARY_SPACER_HEIGHT, GraphCardLayout, GraphSpanControlAreas,
-            GraphWorkspaceLayout, details_graph_rows, details_samples_row_capacity,
-            details_samples_summary_height, graph_shared_control_areas, graph_workspace_layout,
+            GraphCardLayout, GraphSpanControlAreas, GraphWorkspaceLayout, details_graph_rows,
+            details_samples_content_layout, graph_shared_control_areas, graph_workspace_layout,
             graph_workspace_title_label,
         },
         widgets::block::{graph_card_block, graph_workspace_block, panel_block_focused},
@@ -519,8 +518,15 @@ fn draw_samples_subpanel(
     ])];
 
     let content_height = inner.height as usize;
-    let row_capacity =
-        details_samples_row_capacity(inner.height, comparison.is_some(), show_base_summary);
+    let show_ab_range_summary =
+        comparison.is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some());
+    let content_layout = details_samples_content_layout(
+        inner.height,
+        comparison.is_some(),
+        show_ab_range_summary,
+        show_base_summary,
+    );
+    let row_capacity = content_layout.row_capacity;
     let view_state = crate::app::DetailsSampleViewState {
         selected_index: selected.min(samples.len().saturating_sub(1)),
         selected_exact: true,
@@ -596,11 +602,11 @@ fn draw_samples_subpanel(
         metric,
         comparison,
         theme,
-        show_base_summary,
+        content_layout.show_base_summary,
         app.log_view_interval_seconds,
         frame_times,
     );
-    let spacer_lines = DETAILS_SAMPLES_SUMMARY_SPACER_HEIGHT as usize;
+    let spacer_lines = content_layout.spacer_height as usize;
     while lines.len() + spacer_lines + summary_lines.len() < content_height {
         lines.push(Line::from(""));
     }
@@ -1149,8 +1155,14 @@ fn sample_summary_lines(
         ));
     }
     lines.extend(sample_ab_summary_lines(comparison, samples, metric, theme));
-    lines
-        .truncate(details_samples_summary_height(comparison.is_some(), show_base_summary) as usize);
+    if let Some(statistics) = ab_range_statistics(comparison, samples, frame_times) {
+        lines.extend(sample_ab_range_summary_lines(
+            &statistics,
+            metric,
+            theme,
+            aggregate_interval_seconds,
+        ));
+    }
     lines
 }
 
@@ -1400,6 +1412,150 @@ fn delta_style(value: Option<f64>, previous: Option<f64>, selected: bool, theme:
     } else {
         Style::default().fg(theme.muted)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AbRangeStatistics {
+    min_value: f64,
+    min_captured_at: DateTime<Local>,
+    max_value: f64,
+    max_captured_at: DateTime<Local>,
+    mean: f64,
+    available_sample_count: usize,
+    expected_frame_count: Option<usize>,
+    missing_frame_count: Option<usize>,
+}
+
+fn ab_range_statistics(
+    comparison: Option<&AbComparison>,
+    samples: &[GraphSample],
+    frame_times: Option<&[DateTime<Local>]>,
+) -> Option<AbRangeStatistics> {
+    let (a, b) = comparison?.a.zip(comparison?.b)?;
+    let (range_start, range_end) = if a.captured_at <= b.captured_at {
+        (a.captured_at, b.captured_at)
+    } else {
+        (b.captured_at, a.captured_at)
+    };
+    let expected_frame_count = frame_times
+        .filter(|frame_times| !frame_times.is_empty())
+        .map(|frame_times| {
+            frame_times
+                .iter()
+                .filter(|captured_at| **captured_at >= range_start && **captured_at <= range_end)
+                .count()
+        });
+
+    let mut statistics: Option<AbRangeStatistics> = None;
+    let mut total = 0.0;
+    for sample in samples
+        .iter()
+        .filter(|sample| sample.captured_at >= range_start && sample.captured_at <= range_end)
+    {
+        let Some(value) = sample.value.filter(|value| value.is_finite()) else {
+            continue;
+        };
+        total += value;
+        match &mut statistics {
+            Some(statistics) => {
+                if value < statistics.min_value
+                    || (value == statistics.min_value
+                        && sample.captured_at < statistics.min_captured_at)
+                {
+                    statistics.min_value = value;
+                    statistics.min_captured_at = sample.captured_at;
+                }
+                if value > statistics.max_value
+                    || (value == statistics.max_value
+                        && sample.captured_at < statistics.max_captured_at)
+                {
+                    statistics.max_value = value;
+                    statistics.max_captured_at = sample.captured_at;
+                }
+                statistics.available_sample_count += 1;
+            }
+            None => {
+                statistics = Some(AbRangeStatistics {
+                    min_value: value,
+                    min_captured_at: sample.captured_at,
+                    max_value: value,
+                    max_captured_at: sample.captured_at,
+                    mean: 0.0,
+                    available_sample_count: 1,
+                    expected_frame_count,
+                    missing_frame_count: None,
+                });
+            }
+        }
+    }
+
+    let mut statistics = statistics?;
+    statistics.mean = total / statistics.available_sample_count as f64;
+    statistics.missing_frame_count = statistics
+        .expected_frame_count
+        .map(|expected| expected.saturating_sub(statistics.available_sample_count));
+    Some(statistics)
+}
+
+fn sample_ab_range_summary_lines(
+    statistics: &AbRangeStatistics,
+    metric: GraphValueFormat,
+    theme: Theme,
+    aggregate_interval_seconds: Option<u64>,
+) -> Vec<Line<'static>> {
+    let range_label = aggregate_interval_seconds
+        .map(|interval| format!("Range ({interval}s avg)"))
+        .unwrap_or_else(|| "Range (raw)".to_string());
+    let sample_count = match (
+        statistics.expected_frame_count,
+        statistics.missing_frame_count,
+    ) {
+        (Some(expected), Some(missing)) => format!(
+            "{}/{}  Missing: {}",
+            format_integer(statistics.available_sample_count as u64),
+            format_integer(expected as u64),
+            format_integer(missing as u64),
+        ),
+        _ => format_integer(statistics.available_sample_count as u64),
+    };
+    vec![
+        Line::from(vec![
+            Span::styled(
+                format!("{range_label} Min: "),
+                Style::default().fg(theme.accent),
+            ),
+            Span::styled(
+                format!(
+                    "{} @ {}",
+                    format_metric_exact_value(statistics.min_value, metric),
+                    statistics.min_captured_at.format("%H:%M:%S")
+                ),
+                Style::default().fg(theme.text),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Max: ", Style::default().fg(theme.accent)),
+            Span::styled(
+                format!(
+                    "{} @ {}",
+                    format_metric_exact_value(statistics.max_value, metric),
+                    statistics.max_captured_at.format("%H:%M:%S")
+                ),
+                Style::default().fg(theme.text),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Avg: ", Style::default().fg(theme.accent)),
+            Span::styled(
+                format_metric_exact_value(statistics.mean, metric),
+                Style::default().fg(theme.text),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Samples: ", Style::default().fg(theme.accent)),
+            Span::styled(sample_count, Style::default().fg(theme.text)),
+        ]),
+    ]
 }
 
 fn sample_ab_summary_lines(
@@ -2804,6 +2960,229 @@ mod tests {
                 delta_style(Some(1.0), None, true, theme).fg,
                 Some(theme.muted)
             );
+        }
+    }
+
+    #[test]
+    fn ab_range_statistics_are_inclusive_chronological_and_choose_earliest_ties() {
+        let base = chrono::Local
+            .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
+            .unwrap();
+        let samples = [
+            GraphSample {
+                captured_at: base,
+                value: Some(3.0),
+            },
+            GraphSample {
+                captured_at: base + chrono::Duration::seconds(1),
+                value: None,
+            },
+            GraphSample {
+                captured_at: base + chrono::Duration::seconds(2),
+                value: Some(1.0),
+            },
+            GraphSample {
+                captured_at: base + chrono::Duration::seconds(3),
+                value: Some(1.0),
+            },
+            GraphSample {
+                captured_at: base + chrono::Duration::seconds(4),
+                value: Some(5.0),
+            },
+            GraphSample {
+                captured_at: base + chrono::Duration::seconds(5),
+                value: Some(5.0),
+            },
+        ];
+        let frame_times = (0..=5)
+            .map(|seconds| base + chrono::Duration::seconds(seconds))
+            .collect::<Vec<_>>();
+        let comparison = AbComparison {
+            a: Some(AbComparisonPoint { captured_at: base }),
+            b: Some(AbComparisonPoint {
+                captured_at: base + chrono::Duration::seconds(5),
+            }),
+        };
+
+        let expected = AbRangeStatistics {
+            min_value: 1.0,
+            min_captured_at: base + chrono::Duration::seconds(2),
+            max_value: 5.0,
+            max_captured_at: base + chrono::Duration::seconds(4),
+            mean: 3.0,
+            available_sample_count: 5,
+            expected_frame_count: Some(6),
+            missing_frame_count: Some(1),
+        };
+        assert_eq!(
+            ab_range_statistics(Some(&comparison), &samples, Some(&frame_times)),
+            Some(expected)
+        );
+
+        let reversed = AbComparison {
+            a: comparison.b,
+            b: comparison.a,
+        };
+        assert_eq!(
+            ab_range_statistics(Some(&reversed), &samples, Some(&frame_times)),
+            Some(expected)
+        );
+
+        let equal = AbComparison {
+            a: Some(AbComparisonPoint {
+                captured_at: base + chrono::Duration::seconds(2),
+            }),
+            b: Some(AbComparisonPoint {
+                captured_at: base + chrono::Duration::seconds(2),
+            }),
+        };
+        assert_eq!(
+            ab_range_statistics(Some(&equal), &samples, Some(&frame_times)),
+            Some(AbRangeStatistics {
+                min_value: 1.0,
+                min_captured_at: base + chrono::Duration::seconds(2),
+                max_value: 1.0,
+                max_captured_at: base + chrono::Duration::seconds(2),
+                mean: 1.0,
+                available_sample_count: 1,
+                expected_frame_count: Some(1),
+                missing_frame_count: Some(0),
+            })
+        );
+    }
+
+    #[test]
+    fn ab_range_statistics_exclude_missing_values_and_absent_frames() {
+        let base = chrono::Local
+            .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
+            .unwrap();
+        let frame_times = (0..=2)
+            .map(|seconds| base + chrono::Duration::seconds(seconds))
+            .collect::<Vec<_>>();
+        let comparison = AbComparison {
+            a: Some(AbComparisonPoint { captured_at: base }),
+            b: Some(AbComparisonPoint {
+                captured_at: base + chrono::Duration::seconds(2),
+            }),
+        };
+        let one_available = [GraphSample {
+            captured_at: base + chrono::Duration::seconds(1),
+            value: Some(7.0),
+        }];
+
+        assert_eq!(
+            ab_range_statistics(Some(&comparison), &one_available, Some(&frame_times)),
+            Some(AbRangeStatistics {
+                min_value: 7.0,
+                min_captured_at: base + chrono::Duration::seconds(1),
+                max_value: 7.0,
+                max_captured_at: base + chrono::Duration::seconds(1),
+                mean: 7.0,
+                available_sample_count: 1,
+                expected_frame_count: Some(3),
+                missing_frame_count: Some(2),
+            })
+        );
+        let without_frame_sequence =
+            ab_range_statistics(Some(&comparison), &one_available, None).unwrap();
+        assert_eq!(without_frame_sequence.expected_frame_count, None);
+        assert_eq!(without_frame_sequence.missing_frame_count, None);
+        let sample_count = sample_ab_range_summary_lines(
+            &without_frame_sequence,
+            GraphValueFormat::Count,
+            THEMES[0],
+            None,
+        )[3]
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<Vec<_>>()
+        .join("");
+        assert_eq!(sample_count, "Samples: 1");
+        assert_eq!(
+            ab_range_statistics(
+                Some(&comparison),
+                &[GraphSample {
+                    captured_at: base + chrono::Duration::seconds(1),
+                    value: None,
+                }],
+                Some(&frame_times),
+            ),
+            None
+        );
+        assert_eq!(ab_range_statistics(None, &one_available, None), None);
+        assert_eq!(
+            ab_range_statistics(
+                Some(&AbComparison {
+                    a: comparison.a,
+                    b: None,
+                }),
+                &one_available,
+                None,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ab_range_summary_formats_every_metric_and_recording_interval() {
+        let base = chrono::Local
+            .with_ymd_and_hms(2026, 1, 1, 10, 0, 0)
+            .unwrap();
+        let statistics = AbRangeStatistics {
+            min_value: 10.0,
+            min_captured_at: base,
+            max_value: 30.0,
+            max_captured_at: base + chrono::Duration::seconds(2),
+            mean: 20.0,
+            available_sample_count: 2,
+            expected_frame_count: Some(3),
+            missing_frame_count: Some(1),
+        };
+        for (metric, expected_mean) in [
+            (GraphValueFormat::Bytes, "20"),
+            (GraphValueFormat::BytesPerSec, "20/s"),
+            (GraphValueFormat::Count, "20"),
+            (GraphValueFormat::Percent, "20.0%"),
+            (GraphValueFormat::AdaptiveBitsPerSec, "0 Kbps"),
+            (GraphValueFormat::MegabitsPerSec, "0 Mbps"),
+            (GraphValueFormat::MegabytesPerSec, "0.0 MB/s"),
+            (GraphValueFormat::QueueLength, "20.0"),
+        ] {
+            let rendered = sample_ab_range_summary_lines(&statistics, metric, THEMES[0], None)
+                .into_iter()
+                .map(|line| {
+                    line.spans
+                        .iter()
+                        .map(|span| span.content.as_ref())
+                        .collect::<Vec<_>>()
+                        .join("")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                rendered[0],
+                format!(
+                    "Range (raw) Min: {} @ 10:00:00",
+                    format_metric_exact_value(10.0, metric)
+                )
+            );
+            assert_eq!(rendered[2], format!("Avg: {expected_mean}"));
+            assert_eq!(rendered[3], "Samples: 2/3  Missing: 1");
+        }
+
+        for interval in [1, 2, 5, 10] {
+            let first = sample_ab_range_summary_lines(
+                &statistics,
+                GraphValueFormat::Count,
+                THEMES[0],
+                Some(interval),
+            )[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<Vec<_>>()
+            .join("");
+            assert_eq!(first, format!("Range ({interval}s avg) Min: 10 @ 10:00:00"));
         }
     }
 

@@ -45,6 +45,8 @@ When selection moves outside the visible range, the range shifts only far enough
 
 A/B timestamps are shared, while values remain Graph-specific. A Graph reports `B-A` only when it has values at both exact timestamps; otherwise it displays an unavailable value. Process Info applies the same-time rule to the fixed process identity described in [Process Investigation](process-investigation.md).
 
+When both timestamps are set, the active Samples inspector also describes the inclusive chronological interval between them. Reversing A and B does not reverse or otherwise change the interval statistics; the signed endpoint `B-A` remains unchanged. The statistics are recalculated independently from the active Graph's raw stored samples and appear only when that Graph has at least one available value in the interval. Min and max retain the exact stored timestamp that produced the value, with the earliest timestamp selected for a tie. The mean and available count exclude missing metrics and absent process or adapter samples. When the display state owns a complete frame-time sequence, it also reports expected frames and how many of those frames lack an available value for the active Graph.
+
 Display smoothing does not change time selection or comparison data. Samples rows, Max, A/B values, `B-A`, range statistics, and clipboard output always use raw stored values. A cursor value attached to an MA5 line is labeled `MA5`; in Log view it also discloses the loaded frame interval.
 
 ## Layout and Resize

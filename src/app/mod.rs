@@ -299,9 +299,11 @@ fn details_samples_page_size_for_app(panels: &MainPanelAreas, app: &App) -> usiz
     let Some(samples) = layout.samples else {
         return 1;
     };
+    let comparison = app.active_ab_comparison();
     details_samples_row_capacity(
         samples.height.saturating_sub(2),
-        app.active_ab_comparison().is_some(),
+        comparison.is_some(),
+        comparison.is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some()),
         true,
     )
 }

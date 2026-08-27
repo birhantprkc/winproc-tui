@@ -93,8 +93,11 @@ fn help_dialog_buffer_shows_two_column_layout() {
     assert!(rendered.contains("Processes / Graph split"), "{rendered}");
     assert!(!rendered.contains("▋"), "{rendered}");
 
-    assert!(rendered.contains("Set A at sample"), "{rendered}");
-    assert!(rendered.contains("Set B at sample"), "{rendered}");
+    assert!(rendered.contains("Set A range endpoint"), "{rendered}");
+    assert!(
+        rendered.contains("Set B; show range statistics"),
+        "{rendered}"
+    );
     assert!(rendered.contains("Jump to A or B"), "{rendered}");
     assert!(rendered.contains("Clear A/B comparison"), "{rendered}");
 
@@ -413,7 +416,7 @@ fn footer_shortcuts_follow_the_focused_panel() {
     assert!(graph.contains("Ctrl+←/→ Pan"), "{graph}");
     assert!(graph.contains("PgUp/PgDn Span"), "{graph}");
     assert!(graph.contains("f/z Fit/Min 0"), "{graph}");
-    assert!(graph.contains("a/b Set A/B"), "{graph}");
+    assert!(graph.contains("a/b Set A/B range"), "{graph}");
     assert!(graph.contains("Shift+A/B Jump A/B"), "{graph}");
 
     app.focused_panel = FocusedPanel::DetailsSamples;
@@ -426,6 +429,7 @@ fn footer_shortcuts_follow_the_focused_panel() {
     assert!(samples.contains("Home/End Edge"), "{samples}");
     assert!(samples.contains("f/z Fit/Min 0"), "{samples}");
     assert!(samples.contains("Shift+A/B Jump A/B"), "{samples}");
+    assert!(samples.contains("a/b Set A/B range"), "{samples}");
     assert!(samples.contains("x Clear A/B"), "{samples}");
 }
 

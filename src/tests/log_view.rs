@@ -767,5 +767,25 @@ fn recording_interval_is_written_and_partial_window_is_flushed() {
     let log_header = render_app_to_text(&app, 120, 45);
     assert!(log_header.contains("LOG"), "{log_header}");
     assert!(log_header.contains("10s AVG"), "{log_header}");
+
+    let captured_at = app.log_view_frame_times[0];
+    let identity = app.visible_process_identity_at(0).unwrap();
+    assert!(app.add_or_reveal_graph_source(
+        GraphSlot::process(identity, DetailsMetric::Private),
+        FocusedPanel::Processes,
+    ));
+    app.ab_comparison = Some(app::AbComparison {
+        a: Some(app::AbComparisonPoint { captured_at }),
+        b: Some(app::AbComparisonPoint { captured_at }),
+    });
+    let range_summary = render_app_to_text(&app, 180, 55);
+    assert!(
+        range_summary.contains("Range (10s avg) Min:"),
+        "{range_summary}"
+    );
+    assert!(
+        range_summary.contains("Samples: 1/1  Missing: 0"),
+        "{range_summary}"
+    );
     let _ = std::fs::remove_file(path);
 }

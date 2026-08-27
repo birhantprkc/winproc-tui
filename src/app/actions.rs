@@ -2627,6 +2627,8 @@ impl App {
         let rows = details_sample_page_size_for_samples_area(
             area,
             self.active_ab_comparison().is_some(),
+            self.active_ab_comparison()
+                .is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some()),
             self.active_graph_slot_count() <= 1,
         );
         let Some(view_state) = self.details_sample_view_state_for_slot(slot_index, rows) else {
@@ -2909,6 +2911,8 @@ fn samples_scrollbar_area_at(
     let rows = details_sample_page_size_for_samples_area(
         samples,
         app.active_ab_comparison().is_some(),
+        app.active_ab_comparison()
+            .is_some_and(|comparison| comparison.a.is_some() && comparison.b.is_some()),
         true,
     );
     let total = app
@@ -2950,11 +2954,13 @@ fn graph_shared_control_areas_for_app(
 fn details_sample_page_size_for_samples_area(
     samples: Rect,
     show_ab_summary: bool,
+    show_ab_range_summary: bool,
     show_base_summary: bool,
 ) -> usize {
     crate::ui::layout::details_samples_row_capacity(
         samples.height,
         show_ab_summary,
+        show_ab_range_summary,
         show_base_summary,
     )
 }

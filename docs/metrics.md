@@ -311,6 +311,14 @@ Graph card titles keep process metric names compact and qualify system metrics w
 Percent, throughput, and disk queue-length Y-axis ticks retain their metric-specific formats.
 The `B-A` value in each Graph card title uses the same metric-specific format as the A/B comparison. It is `--` unless both points are set and that Graph has values at both exact captured times.
 
+### A/B range statistics
+
+When both A and B are set, range statistics use the inclusive chronological interval from the earlier timestamp through the later timestamp. Reversing A and B therefore leaves the range statistics unchanged while preserving the signed endpoint `B-A` result. Only available raw stored values for the active Graph contribute; unavailable metrics, missing processes or adapters, and absent Log-view frames are excluded rather than treated as zero or replaced with nearby values.
+
+`Min` and `Max` report the exact stored timestamp that produced each value. When multiple stored samples tie, the earliest captured timestamp in the interval is selected. `Avg` is the arithmetic mean of available values, formatted with the active Graph's metric format, and `Samples` is the available-value count. When Live, paused, or Log-view state provides its complete frame-time sequence, `Samples` also shows the expected frame count and `Missing` is `expected - available`.
+
+Live and paused-display statistics are labeled `Range (raw)`. Log-view statistics describe the stored Recording frames and are labeled with the session interval, such as `Range (10s avg)`. A longer Recording interval is not expanded into reconstructed one-second values, and a partial final aggregation window remains one stored frame.
+
 ### Graph display smoothing
 
 Each Graph independently displays either its raw stored samples or `MA5`. Raw is the default and retains the existing plotted representation. `MA5` is a trailing simple moving average of exactly five contiguous available stored values, including the current value. The first four values after registration or any gap produce no MA5 point. An unavailable current metric, a missing frame, a process absence, or an adapter absence clears the window, so the line never connects or averages across that gap. Process Graphs remain keyed by full process identity, and GPU Graphs remain keyed by adapter LUID, so process restarts, PID reuse, and adapter changes cannot share an MA5 window.

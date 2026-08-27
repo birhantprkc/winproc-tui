@@ -1427,10 +1427,11 @@ fn moving_average_graph_labels_smoothed_cursor_but_keeps_raw_ab_and_samples() {
     app.select_details_sample_latest();
     app.on_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE))
         .unwrap();
+    let screen = Rect::new(0, 0, 180, 55);
+    let raw_rendered = render_app_to_text(&app, screen.width, screen.height);
     app.on_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE))
         .unwrap();
 
-    let screen = Rect::new(0, 0, 180, 55);
     let buffer = render_app_to_buffer(&app, screen.width, screen.height);
     let graph = details_graph_area_for_app(screen, &app).unwrap();
     let rendered = buffer_to_text(&buffer);
@@ -1443,6 +1444,128 @@ fn moving_average_graph_labels_smoothed_cursor_but_keeps_raw_ab_and_samples() {
     assert!(rendered.contains("B-A: +400"), "{rendered}");
     assert!(rendered.contains("Max: 500"), "{rendered}");
     assert!(rendered.contains("MA5: 300"), "{rendered}");
+    for expected in [
+        "Range (raw) Min: 100 @ 10:00:00",
+        "Max: 500 @ 10:00:04",
+        "Avg: 300",
+        "Samples: 5/5  Missing: 0",
+    ] {
+        assert!(raw_rendered.contains(expected), "{raw_rendered}");
+        assert!(rendered.contains(expected), "{rendered}");
+    }
+}
+
+#[test]
+fn ab_range_statistics_recalculate_per_graph_without_merging_reused_pid_identities() {
+    let mut app = make_test_app(1, 10);
+    let base = Local.with_ymd_and_hms(2026, 5, 26, 10, 0, 0).unwrap();
+    let mut old_process = app.snapshot.processes[0].clone();
+    old_process.pid = 42;
+    old_process.name = "reused.exe".to_string();
+    old_process.start_time = Some(1_700_000_001);
+    let mut new_process = old_process.clone();
+    new_process.start_time = Some(1_700_000_002);
+    let old_identity = ProcessIdentity::from_row(&old_process);
+    let new_identity = ProcessIdentity::from_row(&new_process);
+
+    for (seconds, mut process) in [
+        (0, old_process.clone()),
+        (1, old_process),
+        (2, new_process.clone()),
+        (3, new_process),
+    ] {
+        process.private_bytes = Some(match seconds {
+            0 => 10,
+            1 => 20,
+            2 => 100,
+            _ => 200,
+        });
+        app.snapshot.captured_at = base + chrono::Duration::seconds(seconds);
+        app.snapshot.processes = vec![process];
+        app.process_history.record_snapshot(
+            app.snapshot.captured_at,
+            &app.snapshot.processes,
+            &app.normalized_watch_names,
+        );
+        app.system_history.record_snapshot(&app.snapshot);
+    }
+
+    assert!(app.add_or_reveal_graph_source(
+        GraphSlot::process(old_identity, DetailsMetric::Private),
+        FocusedPanel::Processes,
+    ));
+    let old_graph = app.active_graph_id.unwrap();
+    assert!(app.add_or_reveal_graph_source(
+        GraphSlot::process(new_identity, DetailsMetric::Private),
+        FocusedPanel::Processes,
+    ));
+    let new_graph = app.active_graph_id.unwrap();
+    app.ab_comparison = Some(app::AbComparison {
+        a: Some(app::AbComparisonPoint { captured_at: base }),
+        b: Some(app::AbComparisonPoint {
+            captured_at: base + chrono::Duration::seconds(3),
+        }),
+    });
+    let screen = Rect::new(0, 0, 180, 60);
+
+    assert!(app.set_active_graph(old_graph));
+    let old_rendered = render_app_to_text(&app, screen.width, screen.height);
+    for expected in [
+        "Range (raw) Min: 10 @ 10:00:00",
+        "Max: 20 @ 10:00:01",
+        "Avg: 15",
+        "Samples: 2/4  Missing: 2",
+    ] {
+        assert!(old_rendered.contains(expected), "{old_rendered}");
+    }
+
+    assert!(app.set_active_graph(new_graph));
+    let new_rendered = render_app_to_text(&app, screen.width, screen.height);
+    for expected in [
+        "Range (raw) Min: 100 @ 10:00:02",
+        "Max: 200 @ 10:00:03",
+        "Avg: 150",
+        "Samples: 2/4  Missing: 2",
+    ] {
+        assert!(new_rendered.contains(expected), "{new_rendered}");
+    }
+}
+
+#[test]
+fn ab_range_summary_keeps_samples_accessible_on_narrow_and_short_screens() {
+    let mut app = make_test_app(1, 10);
+    assign_private_graph(&mut app);
+    let base = Local.with_ymd_and_hms(2026, 5, 26, 10, 0, 0).unwrap();
+    for (seconds, value) in [(0, 10), (1, 20)] {
+        app.snapshot.captured_at = base + chrono::Duration::seconds(seconds);
+        app.snapshot.processes[0].private_bytes = Some(value);
+        app.process_history.record_snapshot(
+            app.snapshot.captured_at,
+            &app.snapshot.processes,
+            &app.normalized_watch_names,
+        );
+        app.system_history.record_snapshot(&app.snapshot);
+    }
+    app.ab_comparison = Some(app::AbComparison {
+        a: Some(app::AbComparisonPoint { captured_at: base }),
+        b: Some(app::AbComparisonPoint {
+            captured_at: base + chrono::Duration::seconds(1),
+        }),
+    });
+
+    for screen in [Rect::new(0, 0, 90, 55), Rect::new(0, 0, 120, 30)] {
+        app::sync_layout_state(&mut app, screen);
+        let rendered = render_app_to_text(&app, screen.width, screen.height);
+        assert!(rendered.contains("A/B Time"), "{screen:?}\n{rendered}");
+        assert!(
+            rendered.contains("Range (raw) Min: 10 @ 10:00:00"),
+            "{screen:?}\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Samples: 2/2  Missing: 0"),
+            "{screen:?}\n{rendered}"
+        );
+    }
 }
 
 #[test]
