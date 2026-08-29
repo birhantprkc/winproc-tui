@@ -1122,6 +1122,8 @@ fn sample_max_line(
     ))
 }
 
+// Summary rendering combines independent selection, A/B, layout, and log-timing inputs.
+#[allow(clippy::too_many_arguments)]
 fn sample_summary_lines(
     samples: &[GraphSample],
     display_selected: usize,
