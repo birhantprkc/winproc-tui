@@ -84,13 +84,14 @@ Use `Tab` / `Shift+Tab` to move between panels and the arrow keys to select rows
 ## Capabilities
 
 - **Live monitoring**: Shows system memory pressure, per-adapter GPU load and memory, network and disk activity, CPU activity, and detailed per-process metrics.
+- **Process tree**: Switches the Processes table between a sortable flat list and the parent-child forest captured in each live snapshot, with filtering and subtree collapse.
 - **Graphs and A/B comparison**: Keeps up to 16 metrics in an ordered workspace with synchronized Samples, then compares any two exact sample times.
 - **Tracking Lists**: Saves named sets of process names, supports a Tracked-only view, and retains the latest values after a tracked process exits.
 - **.NET metrics**: Automatically detects live .NET 8/9/10 processes and shows managed-runtime metrics, with selected heap metrics for .NET Framework 4.8.
 - **Process Info**: Brings metrics, image and runtime details, open files, DLLs, and environment variables together for the selected process.
 - **Recording and Log view**: Records system metrics and matching processes as JSON Lines, then reopens them in the same Processes, Graph, Samples, and A/B views.
 
-Layouts, visible columns, sorting, and Tracking Lists are restored on the next launch. Filter input is not saved.
+Layouts, visible columns, sorting, the Processes Flat/Tree preference, and Tracking Lists are restored on the next launch. Filter input is not saved.
 
 ## When to Use It
 

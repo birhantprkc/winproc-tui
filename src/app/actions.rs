@@ -27,7 +27,8 @@ use crate::{
         },
         log_list_index_at, main_panel_areas_for_app, memory_metric_at_position,
         process_info_content_area_for_screen, process_info_tab_at, process_metric_column_index_at,
-        process_tracked_only_control_area, ram_vram_panel_area_for_screen,
+        process_tracked_only_control_area, process_tree_disclosure_hit_test,
+        process_view_mode_control_area, ram_vram_panel_area_for_screen,
         recording_interval_option_at, recording_interval_selector_area, recording_path_input_area,
         system_activity_panel_area_for_screen, tracked_list_index_at,
         tracked_list_save_name_area_for_screen, tracked_list_startup_at_for_screen,
@@ -1233,6 +1234,20 @@ impl App {
             KeyCode::Enter if self.focused_panel == FocusedPanel::Processes => {
                 self.open_selected_process_info_dialog()?;
             }
+            KeyCode::Char(ch)
+                if ch.eq_ignore_ascii_case(&'v')
+                    && key.modifiers.is_empty()
+                    && self.focused_panel == FocusedPanel::Processes =>
+            {
+                self.toggle_process_view_mode();
+            }
+            KeyCode::Char(ch)
+                if ch.eq_ignore_ascii_case(&'e')
+                    && key.modifiers.is_empty()
+                    && self.focused_panel == FocusedPanel::Processes =>
+            {
+                self.toggle_selected_process_expansion();
+            }
             KeyCode::Char(ch @ '1'..='4')
                 if self.focused_panel == FocusedPanel::Processes && key.modifiers.is_empty() =>
             {
@@ -1425,6 +1440,8 @@ impl App {
             self.cpu_per_core_hovered = false;
             self.process_panel_resize_hovered = false;
             self.process_panel_resize_drag = None;
+            self.process_view_mode_hovered = false;
+            self.process_disclosure_hovered = None;
         } else {
             self.graph_hovered_target =
                 graph_hover_target_at(self, screen_area, mouse.column, mouse.row);
@@ -1434,6 +1451,16 @@ impl App {
             self.process_panel_resize_hovered =
                 process_panel_resize_handle_for_app(self, screen_area)
                     .is_some_and(|area| contains_point(area, mouse.column, mouse.row));
+            self.process_view_mode_hovered =
+                process_view_mode_control_area_for_screen(screen_area, self)
+                    .is_some_and(|area| contains_point(area, mouse.column, mouse.row));
+            self.process_disclosure_hovered = self
+                .process_tree_expansion_available()
+                .then(|| {
+                    process_tree_disclosure_row_at(self, screen_area, mouse.column, mouse.row)
+                        .and_then(|index| self.visible_process_identity_at(index))
+                })
+                .flatten();
             if mouse.kind == MouseEventKind::Moved {
                 return;
             }
@@ -1867,6 +1894,21 @@ impl App {
                 {
                     self.focused_panel = FocusedPanel::Processes;
                     self.toggle_watch_list();
+                    return;
+                }
+                if process_view_mode_control_area_for_screen(screen_area, self)
+                    .is_some_and(|area| contains_point(area, mouse.column, mouse.row))
+                {
+                    self.focused_panel = FocusedPanel::Processes;
+                    self.toggle_process_view_mode();
+                    return;
+                }
+                if let Some(index) =
+                    process_tree_disclosure_row_at(self, screen_area, mouse.column, mouse.row)
+                {
+                    self.focused_panel = FocusedPanel::Processes;
+                    self.clear_source_cell_click();
+                    self.toggle_process_expansion_at(index);
                     return;
                 }
                 if self.start_graph_scrollbar_drag(mouse.column, mouse.row, screen_area) {
@@ -2696,6 +2738,9 @@ fn process_tracking_cell_at(
     if row >= app.visible_process_count() {
         return None;
     }
+    if process_tree_disclosure_hit_test(layout.area, x, app, row) {
+        return None;
+    }
     let identity = app.visible_process_identity_at(row)?;
     let column = match process_metric_column_index_at(
         layout.area,
@@ -2862,6 +2907,19 @@ fn samples_area_at(app: &App, screen_area: Rect, x: u16, y: u16) -> Option<(usiz
 fn process_tracked_only_control_area_for_screen(screen_area: Rect, app: &App) -> Option<Rect> {
     let area = main_panel_areas_for_app(screen_area, app).processes.area;
     process_tracked_only_control_area(area, app)
+}
+
+fn process_view_mode_control_area_for_screen(screen_area: Rect, app: &App) -> Option<Rect> {
+    let area = main_panel_areas_for_app(screen_area, app).processes.area;
+    process_view_mode_control_area(area, app)
+}
+
+fn process_tree_disclosure_row_at(app: &App, screen_area: Rect, x: u16, y: u16) -> Option<usize> {
+    let layout = main_panel_areas_for_app(screen_area, app).processes;
+    let row = process_row_index_at(layout, y, app.process_table_state.offset())?;
+    (row < app.visible_process_count()
+        && process_tree_disclosure_hit_test(layout.area, x, app, row))
+    .then_some(row)
 }
 
 fn active_samples_area_for_screen(app: &App, screen_area: Rect) -> Option<Rect> {

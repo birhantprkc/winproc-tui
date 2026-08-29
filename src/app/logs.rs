@@ -441,6 +441,7 @@ fn parse_v3_process(
         .ok_or_else(|| anyhow!("frame references undefined process ID {process_id}"))?;
     Ok(ProcessRow {
         pid: definition.1,
+        parent_pid: None,
         name: definition.2.clone(),
         executable_path: definition.4.clone(),
         start_time: definition.3,
@@ -907,6 +908,7 @@ impl ProcessRecord {
         let metrics = self.metrics.unwrap_or_default();
         Ok(ProcessRow {
             pid: self.pid.ok_or_else(|| anyhow!("process is missing pid"))?,
+            parent_pid: None,
             name: self
                 .name
                 .ok_or_else(|| anyhow!("process is missing name"))?,

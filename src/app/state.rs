@@ -20,10 +20,11 @@ use crate::{
     },
     model::{
         ColumnPreset, GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY, GpuAdapterId, MetricColumn,
-        ProcessColumnWidths, ProcessEnvironmentError, ProcessEnvironmentReport, ProcessHistory,
-        ProcessIdentity, ProcessInfo, ProcessModulesError, ProcessModulesReport, ProcessRow,
-        ProcessSample, Snapshot, SortColumn, SortDirection, SortSpec, SystemHistory, SystemMetric,
-        TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY, compare_process_rows, sort_process_rows,
+        ProcessColumnWidths, ProcessEnvironmentError, ProcessEnvironmentReport, ProcessForest,
+        ProcessHistory, ProcessIdentity, ProcessInfo, ProcessModulesError, ProcessModulesReport,
+        ProcessRow, ProcessSample, Snapshot, SortColumn, SortDirection, SortSpec, SystemHistory,
+        SystemMetric, TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY, compare_process_rows,
+        sort_process_rows,
     },
     samplers::{
         CollectSnapshotResult, SamplingRuntime, SamplingWorker,
@@ -122,7 +123,13 @@ pub(crate) enum ProcessLifecycle {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum VisibleProcessEntry {
-    Live(usize),
+    Live {
+        snapshot_index: usize,
+        depth: usize,
+        has_children: bool,
+        expanded: bool,
+        context_only: bool,
+    },
     Ghost(ProcessIdentity),
 }
 
@@ -133,6 +140,10 @@ pub(crate) struct VisibleProcessRow<'a> {
     pub(crate) lifecycle: ProcessLifecycle,
     pub(crate) multi_selected: bool,
     pub(crate) is_tracked_total: bool,
+    pub(crate) tree_depth: usize,
+    pub(crate) tree_has_children: bool,
+    pub(crate) tree_expanded: bool,
+    pub(crate) filter_context: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -931,6 +942,34 @@ pub(crate) enum AppActivity {
     LogView,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ProcessViewMode {
+    #[default]
+    Flat,
+    Tree,
+}
+
+impl ProcessViewMode {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Flat => "Flat",
+            Self::Tree => "Tree",
+        }
+    }
+}
+
+impl std::str::FromStr for ProcessViewMode {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "flat" => Ok(Self::Flat),
+            "tree" => Ok(Self::Tree),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SampleFreshness {
     Fresh,
@@ -1085,6 +1124,10 @@ pub(crate) struct App {
     pub(crate) process_columns: Vec<MetricColumn>,
     pub(crate) process_column_widths: ProcessColumnWidths,
     pub(crate) sort: SortSpec,
+    pub(crate) process_view_mode: ProcessViewMode,
+    pub(crate) collapsed_process_identities: HashSet<ProcessIdentity>,
+    pub(crate) process_view_mode_hovered: bool,
+    pub(crate) process_disclosure_hovered: Option<ProcessIdentity>,
     pub(crate) paused_display: Option<PausedDisplay>,
     pub(crate) log_view_display: Option<PausedDisplay>,
     pub(crate) filter_text: String,
@@ -1096,6 +1139,7 @@ pub(crate) struct App {
     pub(crate) normalized_watch_names: HashSet<String>,
     pub(crate) watch_enabled: bool,
     pub(crate) visible_process_entries: Vec<VisibleProcessEntry>,
+    pub(crate) visible_process_match_count: usize,
     pub(crate) tracked_total_row: Option<ProcessRow>,
     pub(crate) exited_tracked_rows: HashMap<ProcessIdentity, ExitedTrackedRow>,
     pub(crate) last_tracked_live_identities: HashSet<ProcessIdentity>,
@@ -1163,6 +1207,7 @@ impl App {
         let show_samples_panel = runtime.initial_show_samples_panel;
         let show_sample_delta = runtime.initial_show_sample_delta;
         let process_panel_height = runtime.initial_process_panel_height;
+        let process_view_mode = runtime.initial_process_view_mode;
         let mut app = Self {
             theme_index: theme_index_by_name(&runtime.initial_theme),
             runtime,
@@ -1338,6 +1383,10 @@ impl App {
             process_columns,
             process_column_widths,
             sort,
+            process_view_mode,
+            collapsed_process_identities: HashSet::new(),
+            process_view_mode_hovered: false,
+            process_disclosure_hovered: None,
             paused_display: None,
             log_view_display: None,
             filter_text: String::new(),
@@ -1349,6 +1398,7 @@ impl App {
             normalized_watch_names,
             watch_enabled,
             visible_process_entries: Vec::new(),
+            visible_process_match_count: 0,
             tracked_total_row: None,
             exited_tracked_rows: HashMap::new(),
             last_tracked_live_identities,
@@ -1586,6 +1636,8 @@ impl App {
             .take(rows)
             .filter_map(|entry| {
                 let process = self.process_for_visible_entry(entry)?;
+                let (tree_depth, tree_has_children, tree_expanded, filter_context) =
+                    self.tree_state_for_visible_entry(entry);
                 Some(VisibleProcessRow {
                     process,
                     tracked: self.is_tracked_process_name(&process.name),
@@ -1597,6 +1649,10 @@ impl App {
                                 self.selected_process_identities.contains(&identity)
                             }),
                     is_tracked_total: false,
+                    tree_depth,
+                    tree_has_children,
+                    tree_expanded,
+                    filter_context,
                 })
             })
             .collect()
@@ -1610,6 +1666,10 @@ impl App {
                 lifecycle: ProcessLifecycle::Live,
                 multi_selected: false,
                 is_tracked_total: true,
+                tree_depth: 0,
+                tree_has_children: false,
+                tree_expanded: false,
+                filter_context: false,
             })
     }
 
@@ -1619,6 +1679,23 @@ impl App {
 
     pub(crate) fn visible_process_count(&self) -> usize {
         self.visible_process_entries.len()
+    }
+
+    pub(crate) fn visible_process_match_count(&self) -> usize {
+        self.visible_process_match_count
+    }
+
+    pub(crate) fn effective_process_view_mode(&self) -> ProcessViewMode {
+        if self.activity() == AppActivity::LogView {
+            ProcessViewMode::Flat
+        } else {
+            self.process_view_mode
+        }
+    }
+
+    pub(crate) fn process_tree_expansion_available(&self) -> bool {
+        self.effective_process_view_mode() == ProcessViewMode::Tree
+            && self.active_filter_text().trim().is_empty()
     }
 
     pub(crate) fn sort_indicator_for_column(&self, column: SortColumn) -> Option<SortDirection> {
@@ -1734,27 +1811,90 @@ impl App {
         let filter_includes_path = self.process_columns.contains(&MetricColumn::FullPath);
         let normalized_watch_names = self.active_normalized_watch_names().clone();
 
+        if self.activity() != AppActivity::LogView {
+            let available_identities = self
+                .display_snapshot()
+                .processes
+                .iter()
+                .map(ProcessIdentity::from_row)
+                .collect::<HashSet<_>>();
+            self.collapsed_process_identities
+                .retain(|identity| available_identities.contains(identity));
+        }
+
         self.tracked_total_row =
             tracked_total_row(&self.display_snapshot().processes, &normalized_watch_names);
-        self.visible_process_entries = {
+        let mut live_entries = {
             let snapshot = self.display_snapshot();
-            snapshot
+            let candidates = snapshot
                 .processes
                 .iter()
                 .enumerate()
                 .filter(|(_, process)| {
                     let name = process.name.to_ascii_lowercase();
-                    let filter_matches = filter.is_empty()
-                        || process_matches_filter(process, &filter, filter_includes_path);
-                    let watch_matches =
-                        !self.watch_enabled || normalized_watch_names.contains(&name);
-                    filter_matches && watch_matches
+                    !self.watch_enabled || normalized_watch_names.contains(&name)
                 })
-                .map(|(index, _)| VisibleProcessEntry::Live(index))
-                .collect::<Vec<_>>()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if self.effective_process_view_mode() == ProcessViewMode::Tree {
+                let matches = (!filter.is_empty()).then(|| {
+                    candidates
+                        .iter()
+                        .copied()
+                        .filter(|index| {
+                            process_matches_filter(
+                                &snapshot.processes[*index],
+                                &filter,
+                                filter_includes_path,
+                            )
+                        })
+                        .collect::<HashSet<_>>()
+                });
+                let sibling_sort = (!self.process_order_hold_active()).then_some(self.sort);
+                ProcessForest::build(snapshot.processes.as_slice(), candidates, sibling_sort)
+                    .visible_rows(
+                        snapshot.processes.as_slice(),
+                        matches.as_ref(),
+                        &self.collapsed_process_identities,
+                    )
+                    .into_iter()
+                    .map(|row| VisibleProcessEntry::Live {
+                        snapshot_index: row.row_index,
+                        depth: row.depth,
+                        has_children: row.has_children,
+                        expanded: row.expanded,
+                        context_only: row.context_only,
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                candidates
+                    .into_iter()
+                    .filter(|index| {
+                        filter.is_empty()
+                            || process_matches_filter(
+                                &snapshot.processes[*index],
+                                &filter,
+                                filter_includes_path,
+                            )
+                    })
+                    .map(|snapshot_index| VisibleProcessEntry::Live {
+                        snapshot_index,
+                        depth: 0,
+                        has_children: false,
+                        expanded: false,
+                        context_only: false,
+                    })
+                    .collect::<Vec<_>>()
+            }
         };
-        self.visible_process_entries
-            .extend(self.visible_ghost_entries(&filter, filter_includes_path));
+        let ghosts = self.visible_ghost_entries(&filter, filter_includes_path);
+        self.visible_process_match_count = live_entries
+            .iter()
+            .filter(|entry| !self.visible_entry_is_filter_context(entry))
+            .count()
+            .saturating_add(ghosts.len());
+        live_entries.extend(ghosts);
+        self.visible_process_entries = live_entries;
         self.prune_process_selection_to_visible_live_rows();
         if let Some(selected) = self.process_table_state.selected()
             && selected < self.visible_process_entries.len()
@@ -1785,7 +1925,9 @@ impl App {
 
     fn process_for_visible_entry(&self, entry: &VisibleProcessEntry) -> Option<&ProcessRow> {
         match entry {
-            VisibleProcessEntry::Live(index) => self.display_snapshot().processes.get(*index),
+            VisibleProcessEntry::Live { snapshot_index, .. } => {
+                self.display_snapshot().processes.get(*snapshot_index)
+            }
             VisibleProcessEntry::Ghost(identity) => self
                 .display_exited_tracked_rows()
                 .get(identity)
@@ -1795,10 +1937,10 @@ impl App {
 
     fn identity_for_visible_entry(&self, entry: &VisibleProcessEntry) -> Option<ProcessIdentity> {
         match entry {
-            VisibleProcessEntry::Live(index) => self
+            VisibleProcessEntry::Live { snapshot_index, .. } => self
                 .display_snapshot()
                 .processes
-                .get(*index)
+                .get(*snapshot_index)
                 .map(ProcessIdentity::from_row),
             VisibleProcessEntry::Ghost(identity) => Some(identity.clone()),
         }
@@ -1809,10 +1951,10 @@ impl App {
         entry: &VisibleProcessEntry,
     ) -> Option<ProcessIdentity> {
         match entry {
-            VisibleProcessEntry::Live(index) => self
+            VisibleProcessEntry::Live { snapshot_index, .. } => self
                 .display_snapshot()
                 .processes
-                .get(*index)
+                .get(*snapshot_index)
                 .map(ProcessIdentity::from_row),
             VisibleProcessEntry::Ghost(_) => None,
         }
@@ -1820,7 +1962,7 @@ impl App {
 
     fn lifecycle_for_visible_entry(&self, entry: &VisibleProcessEntry) -> ProcessLifecycle {
         match entry {
-            VisibleProcessEntry::Live(_) => ProcessLifecycle::Live,
+            VisibleProcessEntry::Live { .. } => ProcessLifecycle::Live,
             VisibleProcessEntry::Ghost(identity) => self
                 .display_exited_tracked_rows()
                 .get(identity)
@@ -1829,6 +1971,117 @@ impl App {
                 })
                 .unwrap_or(ProcessLifecycle::Live),
         }
+    }
+
+    fn tree_state_for_visible_entry(
+        &self,
+        entry: &VisibleProcessEntry,
+    ) -> (usize, bool, bool, bool) {
+        match entry {
+            VisibleProcessEntry::Live {
+                depth,
+                has_children,
+                expanded,
+                context_only,
+                ..
+            } => (*depth, *has_children, *expanded, *context_only),
+            VisibleProcessEntry::Ghost(_) => (0, false, false, false),
+        }
+    }
+
+    fn visible_entry_is_filter_context(&self, entry: &VisibleProcessEntry) -> bool {
+        matches!(
+            entry,
+            VisibleProcessEntry::Live {
+                context_only: true,
+                ..
+            }
+        )
+    }
+
+    pub(crate) fn visible_process_tree_state_at(
+        &self,
+        index: usize,
+    ) -> Option<(usize, bool, bool)> {
+        match self.visible_process_entries.get(index)? {
+            VisibleProcessEntry::Live {
+                depth,
+                has_children,
+                expanded,
+                ..
+            } => Some((*depth, *has_children, *expanded)),
+            VisibleProcessEntry::Ghost(_) => None,
+        }
+    }
+
+    pub(crate) fn visible_process_is_filter_context(&self, index: usize) -> bool {
+        self.visible_process_entries
+            .get(index)
+            .is_some_and(|entry| self.visible_entry_is_filter_context(entry))
+    }
+
+    pub(crate) fn toggle_process_view_mode(&mut self) {
+        if self.activity() == AppActivity::LogView {
+            self.status = "Tree view is unavailable in Log view".to_string();
+            return;
+        }
+        self.process_view_mode = match self.process_view_mode {
+            ProcessViewMode::Flat => ProcessViewMode::Tree,
+            ProcessViewMode::Tree => ProcessViewMode::Flat,
+        };
+        self.rebuild_visible_process_cache();
+        self.clamp_process_table_state();
+        self.status = format!("Processes view: {}", self.process_view_mode.label());
+    }
+
+    pub(crate) fn toggle_selected_process_expansion(&mut self) {
+        let Some(index) = self.process_table_state.selected() else {
+            self.status = "No process selected".to_string();
+            return;
+        };
+        self.toggle_process_expansion_at(index);
+    }
+
+    pub(crate) fn toggle_process_expansion_at(&mut self, index: usize) {
+        if self.effective_process_view_mode() != ProcessViewMode::Tree {
+            self.status = "Expand/collapse is available in Tree view".to_string();
+            return;
+        }
+        if !self.process_tree_expansion_available() {
+            self.status = "Clear the process filter to expand or collapse Tree rows".to_string();
+            return;
+        }
+        let Some((_, has_children, _)) = self.visible_process_tree_state_at(index) else {
+            self.status = "This row cannot be expanded".to_string();
+            return;
+        };
+        if !has_children {
+            self.status = "This process has no visible children".to_string();
+            return;
+        }
+        let Some(identity) = self.visible_process_identity_at(index) else {
+            return;
+        };
+        let collapsed = if self.collapsed_process_identities.remove(&identity) {
+            false
+        } else {
+            self.collapsed_process_identities.insert(identity.clone());
+            true
+        };
+        let focused_before = self.selected_process_identity.clone();
+        self.rebuild_visible_process_cache();
+        if focused_before
+            .as_ref()
+            .is_some_and(|focused| self.visible_process_position(focused).is_none())
+        {
+            self.selected_process_identity = Some(identity.clone());
+        }
+        self.clamp_process_table_state();
+        self.status = format!(
+            "{} {}",
+            if collapsed { "Collapsed" } else { "Expanded" },
+            identity.name
+        );
     }
 
     pub(crate) fn selected_visible_process_lifecycle(&self) -> Option<ProcessLifecycle> {
@@ -2019,6 +2272,9 @@ impl App {
         let start = current.saturating_add(usize::from(next_only));
         let match_index = (0..visible_count).find_map(|offset| {
             let index = (start + offset) % visible_count;
+            if self.visible_process_is_filter_context(index) {
+                return None;
+            }
             let identity = self.visible_process_identity_at(index)?;
             identity
                 .name
@@ -5121,10 +5377,10 @@ impl App {
         &self,
         entry: &VisibleProcessEntry,
     ) -> Option<ProcessKillTarget> {
-        let VisibleProcessEntry::Live(index) = entry else {
+        let VisibleProcessEntry::Live { snapshot_index, .. } = entry else {
             return None;
         };
-        let process = self.display_snapshot().processes.get(*index)?;
+        let process = self.display_snapshot().processes.get(*snapshot_index)?;
         Some(ProcessKillTarget {
             identity: ProcessIdentity::from_row(process),
             pid: process.pid,
@@ -7628,6 +7884,7 @@ fn tracked_total_row(
 
     Some(ProcessRow {
         pid: 0,
+        parent_pid: None,
         name: "Tracked Total".to_string(),
         executable_path: None,
         start_time: None,

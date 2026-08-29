@@ -431,7 +431,7 @@ fn tracked_only_count_reports_visible_rows_not_stored_names() {
     assert_eq!(app.visible_tracked_process_count(), 0);
     assert!(app.status.contains("0 visible"));
     assert!(
-        rendered.contains("PROCESSES · 0 visible · ☑ Tracked-only(Shift+T)"),
+        rendered.contains("PROCESSES · 0 visible · Flat(v) · ☑ Tracked-only(Shift+T)"),
         "{rendered}"
     );
 }
@@ -453,7 +453,9 @@ fn process_table_title_shows_concise_active_view_state() {
     let rendered = buffer_to_text(&buffer);
 
     assert!(
-        rendered.contains("PROCESSES · 1 visible · ☑ Tracked-only(Shift+T) · Filter \"target\""),
+        rendered.contains(
+            "PROCESSES · 1 visible · Flat(v) · ☑ Tracked-only(Shift+T) · Filter \"target\""
+        ),
         "{rendered}"
     );
     assert!(
@@ -508,7 +510,7 @@ fn process_table_title_omits_named_list_and_unsaved_marker() {
 
     let saved = render_app_to_text(&app, 120, 30);
     assert!(
-        saved.contains("PROCESSES · 1 visible · ☐ Tracked-only(Shift+T)"),
+        saved.contains("PROCESSES · 1 visible · Flat(v) · ☐ Tracked-only(Shift+T)"),
         "{saved}"
     );
     assert!(!saved.contains("List \"API\""), "{saved}");
@@ -517,7 +519,7 @@ fn process_table_title_omits_named_list_and_unsaved_marker() {
     app.normalized_watch_names.insert("worker.exe".to_string());
     let dirty = render_app_to_text(&app, 120, 30);
     assert!(
-        dirty.contains("PROCESSES · 1 visible · ☐ Tracked-only(Shift+T)"),
+        dirty.contains("PROCESSES · 1 visible · Flat(v) · ☐ Tracked-only(Shift+T)"),
         "{dirty}"
     );
     assert!(!dirty.contains("List \"API*\""), "{dirty}");
@@ -765,7 +767,7 @@ fn tracked_only_includes_live_and_ghost_rows_with_live_first() {
     assert_eq!(app.visible_process_count(), 2);
     assert!(matches!(
         app.visible_process_entries[0],
-        VisibleProcessEntry::Live(_)
+        VisibleProcessEntry::Live { .. }
     ));
     assert!(matches!(
         app.visible_process_entries[1],
@@ -800,7 +802,7 @@ fn exited_tracked_rows_stay_below_live_rows_in_full_process_list() {
     assert_eq!(app.visible_process_at(1).unwrap().name, "target.exe");
     assert!(matches!(
         app.visible_process_entries[0],
-        VisibleProcessEntry::Live(_)
+        VisibleProcessEntry::Live { .. }
     ));
     assert!(matches!(
         app.visible_process_entries[1],
@@ -837,7 +839,7 @@ fn delete_hides_selected_ghost_row_when_processes_are_focused() {
     assert!(app.exited_tracked_rows.is_empty());
     assert!(matches!(
         app.visible_process_entries[0],
-        VisibleProcessEntry::Live(_)
+        VisibleProcessEntry::Live { .. }
     ));
     assert!(app.tracked_total_visible_row().is_some());
 }

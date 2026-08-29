@@ -12,6 +12,7 @@ mod process_info;
 mod process_modules;
 mod process_navigation;
 mod process_table;
+mod process_tree;
 mod quit;
 mod recording;
 mod sampling;

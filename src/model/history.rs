@@ -697,6 +697,7 @@ mod tests {
     fn row(pid: u32, name: &str, private_bytes: u64) -> ProcessRow {
         ProcessRow {
             pid,
+            parent_pid: None,
             name: name.to_string(),
             executable_path: None,
             start_time: Some(1_700_000_000 + u64::from(pid)),

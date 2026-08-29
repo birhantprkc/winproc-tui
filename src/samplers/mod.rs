@@ -233,6 +233,7 @@ fn collect_snapshot(
             let workset_bytes = extras.workset_bytes.or(Some(process.memory()));
             ProcessRow {
                 pid,
+                parent_pid: process.parent().map(|parent| parent.as_u32()),
                 name: process.name().to_string_lossy().into_owned(),
                 executable_path: process
                     .exe()

@@ -85,7 +85,8 @@ use process_table::draw_process_table;
 pub(crate) use process_table::process_table_visible_column_count;
 pub(crate) use process_table::{
     process_metric_column_index_at, process_table_visible_metric_range,
-    process_tracked_only_control_area,
+    process_tracked_only_control_area, process_tree_disclosure_hit_test,
+    process_view_mode_control_area,
 };
 use quit_confirm::draw_quit_confirm;
 use recording_dialog::{

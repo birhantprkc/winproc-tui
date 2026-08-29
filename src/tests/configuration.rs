@@ -1,6 +1,7 @@
 use super::support::{make_test_app, unique_config_path};
 use crate::app::{
-    GraphSlotLayout, ProcessPanelHeight, SAMPLE_STALE_AFTER_SECONDS, SampleFreshness,
+    GraphSlotLayout, ProcessPanelHeight, ProcessViewMode, SAMPLE_STALE_AFTER_SECONDS,
+    SampleFreshness,
 };
 use crate::cli::Cli;
 use crate::config;
@@ -85,6 +86,7 @@ fn build_runtime_config_restores_process_table_settings() {
     config.process_table.sort_by = "CPU %".to_string();
     config.process_table.sort_order = "asc".to_string();
     config.process_table.tracked_only = true;
+    config.process_table.view = "Tree".to_string();
 
     let runtime = build_runtime_config(config).unwrap();
 
@@ -101,6 +103,41 @@ fn build_runtime_config_restores_process_table_settings() {
         }
     );
     assert!(runtime.initial_tracked_only);
+    assert_eq!(runtime.initial_process_view_mode, ProcessViewMode::Tree);
+}
+
+#[test]
+fn process_view_mode_defaults_to_flat_when_missing_or_invalid() {
+    let missing: AppConfig = toml::from_str("[process_table]\npreset = \"Default\"\n").unwrap();
+    assert_eq!(
+        build_runtime_config(missing)
+            .unwrap()
+            .initial_process_view_mode,
+        ProcessViewMode::Flat
+    );
+
+    let invalid: AppConfig = toml::from_str("[process_table]\nview = \"invalid\"\n").unwrap();
+    assert_eq!(
+        build_runtime_config(invalid)
+            .unwrap()
+            .initial_process_view_mode,
+        ProcessViewMode::Flat
+    );
+}
+
+#[test]
+fn process_view_mode_round_trips_with_session_state() {
+    let path = unique_config_path("process-view-mode");
+    let mut app = make_test_app(3, 10);
+    app.process_view_mode = ProcessViewMode::Tree;
+
+    write_app_config(&path, &app).unwrap();
+    let rendered = std::fs::read_to_string(&path).unwrap();
+    let runtime = build_runtime_config(load_config(&path).unwrap()).unwrap();
+    let _ = std::fs::remove_file(&path);
+
+    assert!(rendered.contains("view = \"Tree\""), "{rendered}");
+    assert_eq!(runtime.initial_process_view_mode, ProcessViewMode::Tree);
 }
 
 #[test]

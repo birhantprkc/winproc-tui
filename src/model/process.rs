@@ -1,6 +1,7 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ProcessRow {
     pub(crate) pid: u32,
+    pub(crate) parent_pid: Option<u32>,
     pub(crate) name: String,
     pub(crate) executable_path: Option<String>,
     pub(crate) start_time: Option<u64>,

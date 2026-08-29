@@ -145,6 +145,7 @@ pub(in crate::tests) fn make_test_app_with_workers(
             process_column_widths: ProcessColumnWidths::default(),
             sort: SortSpec::default(),
             initial_tracked_only: false,
+            initial_process_view_mode: app::ProcessViewMode::Flat,
             initial_process_panel_height: ProcessPanelHeight::Auto,
             process_filters: Vec::new(),
             tracked_list_startup: config::TrackedListStartup::ResumeLast,
@@ -327,6 +328,10 @@ pub(in crate::tests) fn make_test_app_with_workers(
         ],
         process_column_widths: ProcessColumnWidths::default(),
         sort: SortSpec::default(),
+        process_view_mode: app::ProcessViewMode::Flat,
+        collapsed_process_identities: std::collections::HashSet::new(),
+        process_view_mode_hovered: false,
+        process_disclosure_hovered: None,
         paused_display: None,
         log_view_display: None,
         filter_text: String::new(),
@@ -337,7 +342,16 @@ pub(in crate::tests) fn make_test_app_with_workers(
         watch_list: Vec::new(),
         normalized_watch_names: std::collections::HashSet::new(),
         watch_enabled: false,
-        visible_process_entries: (0..row_count).map(VisibleProcessEntry::Live).collect(),
+        visible_process_entries: (0..row_count)
+            .map(|snapshot_index| VisibleProcessEntry::Live {
+                snapshot_index,
+                depth: 0,
+                has_children: false,
+                expanded: false,
+                context_only: false,
+            })
+            .collect(),
+        visible_process_match_count: row_count,
         tracked_total_row: None,
         exited_tracked_rows: std::collections::HashMap::new(),
         last_tracked_live_identities: std::collections::HashSet::new(),
@@ -364,6 +378,7 @@ pub(in crate::tests) fn test_snapshot(row_count: usize) -> Snapshot {
     let processes = (0..row_count)
         .map(|index| ProcessRow {
             pid: index as u32,
+            parent_pid: None,
             name: format!("proc-{index}"),
             executable_path: None,
             start_time: Some(1_700_000_000 + index as u64),

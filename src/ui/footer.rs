@@ -105,6 +105,16 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
     if app.can_adjust_process_panel_height() {
         items.insert(0, ("h/H/Alt+H", "Height"));
     }
+    if app.focused_panel == FocusedPanel::Processes && app.activity() != AppActivity::LogView {
+        let view_index = items
+            .iter()
+            .position(|(key, _)| *key == "g")
+            .unwrap_or(items.len());
+        items.insert(view_index, ("v", "Flat/Tree"));
+        if app.process_tree_expansion_available() {
+            items.insert(view_index + 1, ("e", "Expand/Collapse"));
+        }
+    }
     if app.activity() == AppActivity::Recording {
         if app.focused_panel == FocusedPanel::Processes {
             let identity_column_selected = app.selected_process_column_toggles_tracking();
@@ -115,6 +125,7 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
         items.insert(0, ("Ctrl+R", "Stop"));
     }
     if app.activity() == AppActivity::LogView {
+        items.retain(|(key, _)| *key != "v" && *key != "e");
         items.push(("Esc", "Live"));
     } else {
         items.push(("Ctrl+P", "Pause"));

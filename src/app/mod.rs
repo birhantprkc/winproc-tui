@@ -63,6 +63,7 @@ pub(crate) use state::ProcessInfoTab;
 pub(crate) use state::ProcessLifecycle;
 pub(crate) use state::ProcessPanelHeight;
 pub(crate) use state::ProcessPanelResizeDrag;
+pub(crate) use state::ProcessViewMode;
 pub(crate) use state::ResourcePanel;
 #[cfg(test)]
 pub(crate) use state::SAMPLE_STALE_AFTER_SECONDS;
@@ -206,10 +207,21 @@ pub(crate) fn run_tui(
 }
 
 pub(crate) fn handle_mouse_event(app: &mut App, mouse: MouseEvent, screen_area: Rect) -> bool {
-    let previous_hover = (app.graph_hovered_target, app.cpu_per_core_hovered);
+    let previous_hover = (
+        app.graph_hovered_target,
+        app.cpu_per_core_hovered,
+        app.process_view_mode_hovered,
+        app.process_disclosure_hovered.clone(),
+    );
     app.on_mouse(mouse, screen_area);
     mouse.kind != MouseEventKind::Moved
-        || previous_hover != (app.graph_hovered_target, app.cpu_per_core_hovered)
+        || previous_hover
+            != (
+                app.graph_hovered_target,
+                app.cpu_per_core_hovered,
+                app.process_view_mode_hovered,
+                app.process_disclosure_hovered.clone(),
+            )
 }
 
 struct LoopTrace {

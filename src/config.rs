@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::app::{App, GraphSlotLayout, ProcessPanelHeight};
+use crate::app::{App, GraphSlotLayout, ProcessPanelHeight, ProcessViewMode};
 use crate::model::{
     ColumnPreset, MetricColumn, ProcessColumnWidths, SortColumn, SortDirection, SortSpec,
 };
@@ -70,6 +70,7 @@ impl Default for GraphConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct ProcessTableConfig {
+    pub(crate) view: String,
     pub(crate) preset: String,
     pub(crate) columns: Vec<String>,
     pub(crate) sort_by: String,
@@ -83,6 +84,7 @@ pub(crate) struct ProcessTableConfig {
 impl Default for ProcessTableConfig {
     fn default() -> Self {
         Self {
+            view: ProcessViewMode::Flat.label().to_string(),
             preset: ColumnPreset::Default.label().to_string(),
             columns: ColumnPreset::Default
                 .columns()
@@ -187,6 +189,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) process_column_widths: ProcessColumnWidths,
     pub(crate) sort: SortSpec,
     pub(crate) initial_tracked_only: bool,
+    pub(crate) initial_process_view_mode: ProcessViewMode,
     pub(crate) initial_process_panel_height: ProcessPanelHeight,
     pub(crate) process_filters: Vec<String>,
     pub(crate) tracked_list_startup: TrackedListStartup,
@@ -286,6 +289,11 @@ pub(crate) fn build_runtime_config(config: AppConfig) -> Result<RuntimeConfig> {
                 .unwrap_or(SortDirection::Desc),
         },
         initial_tracked_only: config.process_table.tracked_only,
+        initial_process_view_mode: config
+            .process_table
+            .view
+            .parse()
+            .unwrap_or(ProcessViewMode::Flat),
         initial_process_panel_height: process_panel_height(config.process_table.body_rows),
         process_filters,
         tracked_list_startup: config.tracking.startup,
@@ -315,6 +323,7 @@ pub(crate) fn write_app_config(path: &Path, app: &App) -> Result<()> {
             delta: app.show_sample_delta,
         },
         process_table: ProcessTableConfig {
+            view: app.process_view_mode.label().to_string(),
             preset: app.column_preset.label().to_string(),
             columns: app
                 .process_columns

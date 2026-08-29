@@ -375,6 +375,7 @@ mod tests {
     ) -> ProcessRow {
         ProcessRow {
             pid,
+            parent_pid: None,
             name,
             executable_path,
             start_time: Some(start_time),

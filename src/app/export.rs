@@ -1386,6 +1386,7 @@ mod tests {
     ) -> ProcessRow {
         ProcessRow {
             pid,
+            parent_pid: None,
             name: name.to_string(),
             executable_path: Some(format!(r"C:\work\{name}")),
             start_time: Some(1000 + pid as u64),

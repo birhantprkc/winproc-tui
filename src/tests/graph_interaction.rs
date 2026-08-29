@@ -1412,7 +1412,9 @@ fn log_view_panel_titles_omit_history_counts() {
 
     assert!(!rendered.contains("[Samples:"), "{rendered}");
     assert!(
-        rendered.contains("PROCESSES · 1 visible · ☐ Tracked-only(Shift+T)"),
+        rendered.contains(
+            "PROCESSES · 1 visible · Flat (Tree unavailable in LOG) · ☐ Tracked-only(Shift+T)"
+        ),
         "{rendered}"
     );
     assert!(!rendered.contains("Samples: tracked"), "{rendered}");

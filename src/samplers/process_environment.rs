@@ -651,6 +651,7 @@ mod tests {
     fn process_row(pid: u32, name: String, start_time: u64) -> ProcessRow {
         ProcessRow {
             pid,
+            parent_pid: None,
             name,
             executable_path: None,
             start_time: Some(start_time),

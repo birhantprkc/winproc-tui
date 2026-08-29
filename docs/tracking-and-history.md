@@ -33,6 +33,18 @@ The startup choice is resolved before the first sample. This ensures tracked-his
 
 Tracking List startup changes and explicit saved-list actions persist immediately. Other session settings are written after a successful interactive run; filter input is never persisted.
 
+## Processes Flat and Tree Views
+
+The Processes table supports a persisted `Flat` / `Tree` view preference. Flat view keeps the ordinary globally sorted list. Tree view builds a forest from the live rows in the currently displayed snapshot. The sampling worker captures each process's parent PID as part of the normal snapshot, so tree construction does not add work to the UI thread.
+
+A parent edge is accepted only when exactly one live row in that same snapshot has the reported parent PID. The edge targets that row's full `ProcessIdentity`; missing, inaccessible, ambiguous, and self-referential parents become roots. Cycles are broken without recursion, and their members become roots. Parentage is never inferred from an earlier snapshot or from retained history, and it is not added to recording schemas. Log view therefore remains Flat even when Tree is the saved Live preference.
+
+Roots and each sibling group follow the current sort column and direction, then each subtree is displayed in parent-first order. Expand/collapse state is session-local and keyed by full `ProcessIdentity`, so a reused PID does not inherit an earlier process lifetime's state. Leaves, the synthetic Tracked Total row, and Ghost Rows have no disclosure control.
+
+In Tree view, a text filter keeps direct live matches and the ancestor paths needed to locate them. Those ancestors are muted context rows, matching paths are temporarily revealed, and match counts and jump navigation count only direct matches. Expand/collapse is temporarily unavailable while a text filter is active, its disclosure glyphs are muted, and the existing session-local collapsed state resumes unchanged when the filter is cleared. Tracked-only is applied before tree construction: untracked ancestors are not reintroduced, and combining it with a text filter searches only the tracked subset. Ghost Rows remain top-level entries after the live forest and follow the same text filter. Tracked Total remains outside the hierarchy.
+
+Selection follows full process identity across sampling refreshes and sibling reordering. Collapsing a subtree whose descendant has focus moves focus to the collapsed parent, and hidden descendants are removed from multi-selection. Display pause builds the tree from the frozen snapshot; Recording continues to use the current live snapshot and allows Tree view.
+
 ## Live History Retention
 
 Tracked process identities retain 7,200 samples, approximately two hours at the fixed one-second Live interval. General non-tracked identities retain 120 samples, approximately two minutes. System history retains 7,200 samples.

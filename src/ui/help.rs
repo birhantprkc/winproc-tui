@@ -77,6 +77,14 @@ const GLOBAL_ROWS: &[HelpItem] = &[
 
 const PROCESSES_ROWS: &[HelpItem] = &[
     HelpItem {
+        key: "v",
+        label: "Toggle Flat / Tree view (Live and Recording)",
+    },
+    HelpItem {
+        key: "e",
+        label: "Expand/collapse Tree row (no filter)",
+    },
+    HelpItem {
         key: "Ctrl+F",
         label: "Edit process filter",
     },
@@ -359,6 +367,10 @@ const MOUSE_ROWS: &[HelpItem] = &[
     HelpItem {
         key: "Click row",
         label: "Select clicked row",
+    },
+    HelpItem {
+        key: "Click Tree disclosure",
+        label: "Expand/collapse subtree (no filter)",
     },
     HelpItem {
         key: "Double-click metric",

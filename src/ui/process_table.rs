@@ -7,7 +7,10 @@ use ratatui::{
 
 use crate::{
     App,
-    app::{FocusedPanel, GraphSourceState, ProcessLifecycle, VisibleProcessRow},
+    app::{
+        AppActivity, FocusedPanel, GraphSourceState, ProcessLifecycle, ProcessViewMode,
+        VisibleProcessRow,
+    },
     model::{MetricColumn, ProcessColumnWidths, ProcessRow, SortColumn, SortDirection},
     ui::{
         Theme,
@@ -29,6 +32,7 @@ const TRUNCATION_MARKER: &str = "⋯";
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ProcessTitleSegmentKind {
     VisibleCount,
+    ViewMode,
     TrackedOnly,
     Filter,
 }
@@ -467,7 +471,7 @@ fn process_table_row(
         let table_column_index = column_index + FIXED_SELECTABLE_COLUMN_COUNT;
         let selected_column = table_column_index == selected_table_column_index;
         let selected_cell = row_selected && selected_column;
-        let graph_state = if row.is_tracked_total {
+        let graph_state = if row.is_tracked_total || row.filter_context {
             None
         } else {
             graph_state_for_cell(app, process, *column)
@@ -576,6 +580,12 @@ fn tracked_cell(row: &VisibleProcessRow<'_>, theme: Theme) -> Cell<'static> {
     if !row.tracked {
         return Cell::from(Line::from(Span::raw(tracked_symbol(false))));
     }
+    if row.filter_context {
+        return Cell::from(Line::from(Span::styled(
+            tracked_symbol(true),
+            Style::default().fg(theme.muted),
+        )));
+    }
     Cell::from(Line::from(Span::styled(
         tracked_symbol(true),
         tracked_marker_style(&row.lifecycle, theme),
@@ -605,6 +615,8 @@ fn process_name_line(
 ) -> Line<'static> {
     let process = row.process;
     let base_style = process_text_style(row, theme);
+    let prefix = process_tree_prefix(row, width, app, base_style, theme);
+    let name_width = usize::from(width).saturating_sub(prefix.width());
     let query = (if app.is_process_jump_editing() {
         Some(app.process_jump_draft().trim())
     } else {
@@ -615,17 +627,101 @@ fn process_name_line(
         Some(query) => highlighted_process_name_line(&process.name, query, base_style, theme),
         None => Line::from(Span::styled(process.name.clone(), base_style)),
     };
-    let width = width as usize;
-    if let ProcessLifecycle::Exited { exited_at } = &row.lifecycle {
+    let mut line = if let ProcessLifecycle::Exited { exited_at } = &row.lifecycle {
         let suffix = format!("({})", exited_at.format("%H:%M:%S"));
         let suffix_width = text_width(&suffix);
-        if suffix_width < width {
-            let mut line = truncate_line_end(line, width - suffix_width, base_style);
+        if suffix_width < name_width {
+            let mut line = truncate_line_end(line, name_width - suffix_width, base_style);
             line.spans.push(Span::styled(suffix, base_style));
-            return line;
+            line
+        } else {
+            truncate_line_end(line, name_width, base_style)
         }
+    } else {
+        truncate_line_end(line, name_width, base_style)
+    };
+    if !prefix.spans.is_empty() {
+        let mut spans = prefix.spans;
+        spans.append(&mut line.spans);
+        line = Line::from(spans);
     }
-    truncate_line_end(line, width, base_style)
+    line
+}
+
+fn process_tree_prefix(
+    row: &VisibleProcessRow<'_>,
+    width: u16,
+    app: &App,
+    base_style: Style,
+    theme: Theme,
+) -> Line<'static> {
+    if app.effective_process_view_mode() != ProcessViewMode::Tree || row.is_tracked_total {
+        return Line::default();
+    }
+    let offset = process_tree_disclosure_offset(row.tree_depth, width);
+    let mut spans = Vec::new();
+    if offset > 0 {
+        spans.push(Span::styled(" ".repeat(offset), base_style));
+    }
+    let glyph = match (row.tree_has_children, row.tree_expanded) {
+        (true, true) => "▾",
+        (true, false) => "▸",
+        (false, _) => " ",
+    };
+    let identity = crate::model::ProcessIdentity::from_row(row.process);
+    let disclosure_style = if row.tree_has_children && !app.process_tree_expansion_available() {
+        base_style.fg(theme.muted)
+    } else if row.tree_has_children && app.process_disclosure_hovered.as_ref() == Some(&identity) {
+        Style::default()
+            .fg(theme.text)
+            .bg(theme.focus_surface)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        base_style
+    };
+    spans.push(Span::styled(glyph, disclosure_style));
+    spans.push(Span::styled(" ", base_style));
+    Line::from(spans)
+}
+
+fn process_tree_disclosure_offset(depth: usize, width: u16) -> usize {
+    depth
+        .saturating_mul(2)
+        .min(usize::from(width.saturating_sub(2)))
+}
+
+pub(crate) fn process_tree_disclosure_hit_test(
+    area: Rect,
+    x: u16,
+    app: &App,
+    visible_row_index: usize,
+) -> bool {
+    if app.effective_process_view_mode() != ProcessViewMode::Tree {
+        return false;
+    }
+    let Some((depth, has_children, _)) = app.visible_process_tree_state_at(visible_row_index)
+    else {
+        return false;
+    };
+    if !has_children {
+        return false;
+    }
+    let visible_columns = visible_metric_columns(
+        area.width,
+        &app.process_columns,
+        app.process_metric_column_offset,
+        &app.process_column_widths,
+    );
+    let column_rects =
+        process_table_column_rects(area, &visible_columns, &app.process_column_widths);
+    let Some(process_rect) = column_rects.get(2) else {
+        return false;
+    };
+    let disclosure_x = process_rect.x.saturating_add(
+        u16::try_from(process_tree_disclosure_offset(depth, process_rect.width))
+            .unwrap_or(u16::MAX),
+    );
+    x == disclosure_x && x < process_rect.right()
 }
 
 fn active_filter_query(app: &App) -> Option<&str> {
@@ -779,6 +875,8 @@ fn process_metric_overflow_indicator(
 fn process_text_style(row: &VisibleProcessRow<'_>, theme: Theme) -> Style {
     if matches!(row.lifecycle, ProcessLifecycle::Exited { .. }) {
         Style::default().fg(theme.exited)
+    } else if row.filter_context {
+        Style::default().fg(theme.muted)
     } else {
         Style::default().fg(theme.text)
     }
@@ -801,6 +899,8 @@ fn process_table_title(app: &App, theme: Theme) -> Line<'static> {
             spans.push(title_separator(theme));
             if segment.kind == ProcessTitleSegmentKind::TrackedOnly {
                 spans.extend(process_tracked_only_title_spans(app, theme));
+            } else if segment.kind == ProcessTitleSegmentKind::ViewMode {
+                spans.extend(process_view_mode_title_spans(app, theme));
             } else {
                 spans.push(Span::styled(
                     segment.label,
@@ -813,10 +913,31 @@ fn process_table_title(app: &App, theme: Theme) -> Line<'static> {
 }
 
 fn process_table_state_segments(app: &App) -> Vec<ProcessTitleSegment> {
+    let visible_label = if app.effective_process_view_mode() == ProcessViewMode::Tree
+        && !app.active_filter_text().is_empty()
+        && app.visible_process_match_count() != app.visible_process_count()
+    {
+        format!(
+            "{} match{} · {} visible",
+            app.visible_process_match_count(),
+            if app.visible_process_match_count() == 1 {
+                ""
+            } else {
+                "es"
+            },
+            app.visible_process_count()
+        )
+    } else {
+        format!("{} visible", app.visible_process_count())
+    };
     let mut segments = vec![
         ProcessTitleSegment {
             kind: ProcessTitleSegmentKind::VisibleCount,
-            label: format!("{} visible", app.visible_process_count()),
+            label: visible_label,
+        },
+        ProcessTitleSegment {
+            kind: ProcessTitleSegmentKind::ViewMode,
+            label: process_view_mode_label(app),
         },
         ProcessTitleSegment {
             kind: ProcessTitleSegmentKind::TrackedOnly,
@@ -838,6 +959,19 @@ fn process_title_segment_style(kind: ProcessTitleSegmentKind, app: &App, theme: 
         ProcessTitleSegmentKind::VisibleCount => Style::default()
             .fg(theme.muted)
             .remove_modifier(Modifier::BOLD),
+        ProcessTitleSegmentKind::ViewMode if app.activity() == AppActivity::LogView => {
+            Style::default()
+                .fg(theme.muted)
+                .remove_modifier(Modifier::BOLD)
+        }
+        ProcessTitleSegmentKind::ViewMode if app.process_view_mode == ProcessViewMode::Tree => {
+            Style::default()
+                .fg(theme.accent)
+                .remove_modifier(Modifier::BOLD)
+        }
+        ProcessTitleSegmentKind::ViewMode => Style::default()
+            .fg(theme.muted)
+            .remove_modifier(Modifier::BOLD),
         ProcessTitleSegmentKind::TrackedOnly if app.watch_enabled => Style::default()
             .fg(theme.tracked)
             .remove_modifier(Modifier::BOLD),
@@ -847,6 +981,25 @@ fn process_title_segment_style(kind: ProcessTitleSegmentKind, app: &App, theme: 
         ProcessTitleSegmentKind::Filter => Style::default()
             .fg(theme.warning)
             .remove_modifier(Modifier::BOLD),
+    }
+}
+
+fn process_view_mode_title_spans(app: &App, theme: Theme) -> Vec<Span<'static>> {
+    let mut style = process_title_segment_style(ProcessTitleSegmentKind::ViewMode, app, theme);
+    if app.process_view_mode_hovered && app.activity() != AppActivity::LogView {
+        style = style
+            .fg(theme.text)
+            .bg(theme.focus_surface)
+            .add_modifier(Modifier::BOLD);
+    }
+    vec![Span::styled(process_view_mode_label(app), style)]
+}
+
+fn process_view_mode_label(app: &App) -> String {
+    if app.activity() == AppActivity::LogView {
+        "Flat (Tree unavailable in LOG)".to_string()
+    } else {
+        format!("{}(v)", app.process_view_mode.label())
     }
 }
 
@@ -932,6 +1085,21 @@ fn title_separator(theme: Theme) -> Span<'static> {
 }
 
 pub(crate) fn process_tracked_only_control_area(area: Rect, app: &App) -> Option<Rect> {
+    process_title_control_area(area, app, ProcessTitleSegmentKind::TrackedOnly)
+}
+
+pub(crate) fn process_view_mode_control_area(area: Rect, app: &App) -> Option<Rect> {
+    if app.activity() == AppActivity::LogView {
+        return None;
+    }
+    process_title_control_area(area, app, ProcessTitleSegmentKind::ViewMode)
+}
+
+fn process_title_control_area(
+    area: Rect,
+    app: &App,
+    target: ProcessTitleSegmentKind,
+) -> Option<Rect> {
     if app.is_filter_editing() || app.is_process_jump_editing() {
         return None;
     }
@@ -953,7 +1121,7 @@ pub(crate) fn process_tracked_only_control_area(area: Rect, app: &App) -> Option
     let mut prefix_width = text_width(PROCESS_TITLE);
     for segment in process_table_state_segments(app) {
         prefix_width = prefix_width.saturating_add(text_width(TITLE_SEPARATOR));
-        if segment.kind == ProcessTitleSegmentKind::TrackedOnly {
+        if segment.kind == target {
             let title_x = area.x.saturating_add(1).saturating_add(prefix_width as u16);
             if title_x >= control_right {
                 return None;
@@ -1091,6 +1259,7 @@ mod tests {
     fn tracked_cell_uses_t_for_tracked_rows_only() {
         let process = ProcessRow {
             pid: 1,
+            parent_pid: None,
             name: "app.exe".to_string(),
             executable_path: None,
             start_time: Some(1_700_000_001),
@@ -1124,6 +1293,10 @@ mod tests {
             lifecycle: ProcessLifecycle::Live,
             multi_selected: false,
             is_tracked_total: false,
+            tree_depth: 0,
+            tree_has_children: false,
+            tree_expanded: false,
+            filter_context: false,
         };
         let ordinary = VisibleProcessRow {
             process: &process,
@@ -1131,6 +1304,10 @@ mod tests {
             lifecycle: ProcessLifecycle::Live,
             multi_selected: false,
             is_tracked_total: false,
+            tree_depth: 0,
+            tree_has_children: false,
+            tree_expanded: false,
+            filter_context: false,
         };
 
         assert_eq!(tracked_symbol(tracked.tracked), "T");
@@ -1161,6 +1338,7 @@ mod tests {
     fn process_io_columns_use_decimal_kilobytes_per_second() {
         let process = ProcessRow {
             pid: 1,
+            parent_pid: None,
             name: "app.exe".to_string(),
             executable_path: None,
             start_time: Some(1_700_000_001),
@@ -1350,6 +1528,7 @@ mod tests {
         let theme = crate::ui::theme::THEMES[0];
         let process = ProcessRow {
             pid: 0,
+            parent_pid: None,
             name: "Tracked Total".to_string(),
             executable_path: None,
             start_time: None,
@@ -1383,6 +1562,10 @@ mod tests {
             lifecycle: ProcessLifecycle::Live,
             multi_selected: false,
             is_tracked_total: true,
+            tree_depth: 0,
+            tree_has_children: false,
+            tree_expanded: false,
+            filter_context: false,
         };
 
         assert_eq!(process_text_style(&row, theme).fg, Some(theme.text));

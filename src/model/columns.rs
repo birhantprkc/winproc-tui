@@ -693,6 +693,7 @@ mod tests {
     ) -> ProcessRow {
         ProcessRow {
             pid,
+            parent_pid: None,
             name: name.to_string(),
             executable_path: None,
             start_time: Some(1_700_000_000 + u64::from(pid)),
@@ -783,6 +784,7 @@ mod tests {
     fn raw_value_returns_unformatted_metric_values() {
         let row = ProcessRow {
             pid: 1,
+            parent_pid: None,
             name: "app.exe".to_string(),
             executable_path: Some(r"C:\work\app.exe".to_string()),
             start_time: Some(1_700_000_000),

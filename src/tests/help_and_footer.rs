@@ -74,6 +74,15 @@ fn help_dialog_buffer_shows_two_column_layout() {
     );
     assert!(rendered.contains("Global  (any focus)"), "{rendered}");
     assert!(rendered.contains("Processes"), "{rendered}");
+    assert!(rendered.contains("Toggle Flat / Tree view"), "{rendered}");
+    assert!(
+        rendered.contains("Expand/collapse Tree row (no filter)"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("Expand/collapse subtree (no filter)"),
+        "{rendered}"
+    );
     assert!(rendered.contains("MEM/GPU"), "{rendered}");
     assert!(rendered.contains("NW/DISK"), "{rendered}");
     assert!(
@@ -341,6 +350,8 @@ fn footer_shows_process_context_on_one_row() {
     assert!(rendered.contains("Ctrl+T Lists"), "{rendered}");
     assert!(rendered.contains("c Columns"), "{rendered}");
     assert!(rendered.contains("s Sort"), "{rendered}");
+    assert!(rendered.contains("v Flat/Tree"), "{rendered}");
+    assert!(!rendered.contains("e Expand/Collapse"), "{rendered}");
     assert!(rendered.contains("g Graphs"), "{rendered}");
     assert!(rendered.contains("Ctrl+I Jump"), "{rendered}");
     assert!(!rendered.contains("Shift+←/→ Move column"), "{rendered}");
@@ -360,6 +371,21 @@ fn footer_shows_process_context_on_one_row() {
     assert!(!rendered.contains("Left/Right Column"), "{rendered}");
     assert!(!rendered.contains("Ctrl+R Record"), "{rendered}");
     assert!(!rendered.contains("Ctrl+O Settings"), "{rendered}");
+
+    app.on_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE))
+        .unwrap();
+    let tree = render_app_to_text(&app, 260, 30);
+    assert!(tree.contains("v Flat/Tree"), "{tree}");
+    assert!(tree.contains("e Expand/Collapse"), "{tree}");
+
+    app.filter_text = "proc".to_string();
+    app.rebuild_visible_process_cache();
+    let filtered_tree = render_app_to_text(&app, 260, 30);
+    assert!(filtered_tree.contains("v Flat/Tree"), "{filtered_tree}");
+    assert!(
+        !filtered_tree.contains("e Expand/Collapse"),
+        "{filtered_tree}"
+    );
 }
 
 #[test]

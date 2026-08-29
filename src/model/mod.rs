@@ -3,6 +3,7 @@ pub(crate) mod history;
 pub(crate) mod process;
 pub(crate) mod process_environment;
 pub(crate) mod process_module;
+pub(crate) mod process_tree;
 pub(crate) mod snapshot;
 pub(crate) mod system;
 
@@ -19,6 +20,7 @@ pub(crate) use process_environment::{
     ProcessEnvironmentEntry, ProcessEnvironmentError, ProcessEnvironmentReport,
 };
 pub(crate) use process_module::{ProcessModuleEntry, ProcessModulesError, ProcessModulesReport};
+pub(crate) use process_tree::ProcessForest;
 pub(crate) use snapshot::Snapshot;
 pub(crate) use system::{
     CpuCoreKind, CpuLogicalProcessorSample, CpuSummarySample, DiskUsageSample, GpuAdapterId,
