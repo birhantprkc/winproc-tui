@@ -31,7 +31,7 @@ pub(crate) fn draw_open_files_tab(
         .min(line_count.saturating_sub(rows));
     frame.render_widget(
         Paragraph::new(lines)
-            .style(Style::default().fg(theme.text).bg(theme.panel))
+            .style(Style::default().fg(theme.text).bg(theme.panel_alt))
             .scroll((offset as u16, 0)),
         area,
     );
@@ -231,7 +231,7 @@ fn render_open_files_scrollbar(
         .end_symbol(Some("▼"))
         .thumb_symbol("█")
         .track_symbol(Some("│"))
-        .style(Style::default().fg(theme.muted).bg(theme.panel))
+        .style(Style::default().fg(theme.muted).bg(theme.panel_alt))
         .thumb_style(
             Style::default()
                 .fg(if app.process_info_focus == ProcessInfoFocus::Content {
@@ -239,7 +239,7 @@ fn render_open_files_scrollbar(
                 } else {
                     theme.muted
                 })
-                .bg(theme.panel),
+                .bg(theme.panel_alt),
         );
     frame.render_stateful_widget(scrollbar, scrollbar_area, &mut state);
 }

@@ -4,7 +4,7 @@ use super::support::{
     selected_process_history_sample_count, test_snapshot, track_process_name,
 };
 use crate::app;
-use crate::app::{DetailsMetric, FocusedPanel, GraphSlot, VisibleProcessEntry};
+use crate::app::{DetailsMetric, FocusedPanel, GraphSlot, ProcessViewMode, VisibleProcessEntry};
 use crate::model;
 use crate::model::{ColumnPreset, ProcessIdentity};
 use crate::samplers::{CollectSnapshotResult, SamplingWorker};
@@ -293,6 +293,18 @@ fn process_table_title_shows_concise_active_view_state() {
     let filter_cell = &buffer[(filter_x, filter_y)];
     assert_eq!(filter_cell.fg, ui::THEMES[0].warning);
     assert_ne!(filter_cell.fg, ui::THEMES[0].tracked);
+}
+
+#[test]
+fn process_table_view_mode_stays_muted_until_hovered() {
+    let mut app = make_test_app(3, 10);
+    app.process_view_mode = ProcessViewMode::Tree;
+    app.rebuild_visible_process_cache();
+
+    let buffer = render_app_to_buffer(&app, 100, 30);
+    let (x, y) = find_text_position(&buffer, "Tree(v)").expect("Tree view state");
+    assert_eq!(buffer[(x, y)].fg, app.theme().muted);
+    assert!(!buffer[(x, y)].modifier.contains(Modifier::BOLD));
 }
 
 #[test]

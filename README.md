@@ -72,7 +72,7 @@ Move focus to a Graph or Samples and choose a sample with `Left` / `Right`. Pres
 ### Track and Record Processes
 
 1. Select a Process or PID cell and press `Space`, double-click it, or press `t` to add that process name to the working Tracking List.
-2. Use `Ctrl+T` to save or load an Investigation Profile containing the Tracking List, process-table setup, Graph workspace, and Recording interval.
+2. Use `Ctrl+T` to open a saved Investigation Profile. Use `MENU > Profile > Save` or `Save As` to save the Tracking List, process-table setup, Graph workspace, and Recording interval together.
 3. Press `Ctrl+R`, choose a log path and a `1s`, `2s`, `5s`, or `10s` recording interval, then start recording.
 4. Press `Ctrl+R` again and confirm with `y` to stop. `Enter`, `Esc`, or `n` continues recording.
 5. Press `Ctrl+L` to reopen a saved log for inspection.

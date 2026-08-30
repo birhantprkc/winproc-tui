@@ -393,11 +393,16 @@ pub(crate) fn build_runtime_config(mut config: AppConfig) -> Result<RuntimeConfi
         .investigation
         .take()
         .expect("prepared config must contain an investigation");
-    let state = if investigation.startup == InvestigationStartup::StartEmpty {
-        investigation.active_profile = None;
-        InvestigationStateConfig::default()
-    } else {
-        normalize_investigation_state(investigation.last)
+    let state = match investigation.startup {
+        InvestigationStartup::StartEmpty => {
+            investigation.active_profile = None;
+            InvestigationStateConfig::default()
+        }
+        InvestigationStartup::ResumeLast => {
+            investigation.active_profile = None;
+            normalize_investigation_state(investigation.last)
+        }
+        InvestigationStartup::ChooseProfile => normalize_investigation_state(investigation.last),
     };
     let process_columns = parse_columns(&state.process_columns)
         .unwrap_or_else(|| ColumnPreset::Default.effective_columns().to_vec());

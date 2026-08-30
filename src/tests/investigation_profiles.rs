@@ -19,6 +19,7 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 
 fn profile(name: &str, graphs: Vec<InvestigationGraphConfig>) -> SavedInvestigationProfile {
     SavedInvestigationProfile {
@@ -82,9 +83,7 @@ fn save_as_captures_reusable_intent_without_runtime_identity() {
     app.graph_y_axis_zero_min = false;
     app.recording_interval_index = 2;
 
-    app.open_investigation_profiles();
-    app.on_key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT))
-        .unwrap();
+    app.begin_save_investigation_profile_as();
     for ch in "API check".chars() {
         app.on_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE))
             .unwrap();
@@ -92,6 +91,7 @@ fn save_as_captures_reusable_intent_without_runtime_identity() {
     app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
         .unwrap();
 
+    assert!(app.investigation_profiles_dialog.is_none());
     assert_eq!(app.runtime.saved_investigation_profiles.len(), 1);
     assert_eq!(
         app.active_investigation_profile.as_deref(),
@@ -123,22 +123,104 @@ fn save_as_captures_reusable_intent_without_runtime_identity() {
 }
 
 #[test]
-fn save_rename_delete_and_duplicate_names_are_explicit() {
+fn save_without_a_bound_profile_opens_only_save_as() {
+    let mut app = make_test_app(1, 10);
+    app.open_investigation_profiles();
+
+    app.save_active_investigation_profile();
+
+    assert!(matches!(
+        app.investigation_profiles_view(),
+        Some(InvestigationProfilesView::NameInput { .. })
+    ));
+    let rendered = render_app_to_text(&app, 100, 45);
+    assert!(
+        rendered.contains("SAVE INVESTIGATION PROFILE AS"),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("OPEN INVESTIGATION PROFILE"),
+        "{rendered}"
+    );
+
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+        .unwrap();
+    assert!(app.investigation_profiles_dialog.is_none());
+}
+
+#[test]
+fn profile_open_dialog_ignores_removed_management_keys() {
+    let mut app = make_test_app(1, 10);
+    app.runtime.saved_investigation_profiles = vec![profile("First", Vec::new())];
+    app.open_investigation_profiles();
+
+    for key in [
+        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE),
+    ] {
+        app.on_key(key).unwrap();
+        assert!(matches!(
+            app.investigation_profiles_view(),
+            Some(InvestigationProfilesView::Browse)
+        ));
+    }
+    assert_eq!(app.runtime.saved_investigation_profiles.len(), 1);
+}
+
+#[test]
+fn header_shows_profile_binding_and_modified_marker() {
+    fn assert_profile_badge(app: &crate::app::App, label: &str) {
+        let buffer = render_app_to_buffer(app, 120, 45);
+        let (x, y) = find_text_position(&buffer, label).expect("profile badge should render");
+        for offset in 0..label.chars().count() as u16 {
+            assert_eq!(buffer[(x + offset, y)].fg, Color::Black);
+            assert_eq!(buffer[(x + offset, y)].bg, app.theme().muted);
+        }
+    }
+
+    let mut app = make_test_app(1, 10);
+    let initial = render_app_to_text(&app, 120, 45);
+    assert!(initial.contains("PF: none"), "{initial}");
+    assert_profile_badge(&app, "PF: none");
+
+    app.begin_save_investigation_profile_as();
+    for ch in "myapp".chars() {
+        app.push_investigation_profile_name_char(ch);
+    }
+    app.commit_investigation_profile_name_input();
+
+    let clean = render_app_to_text(&app, 120, 45);
+    assert!(clean.contains("PF: myapp"), "{clean}");
+    assert!(!clean.contains("PF: myapp*"), "{clean}");
+    assert_profile_badge(&app, "PF: myapp");
+
+    app.graph_time_span_seconds = app.graph_time_span_seconds.saturating_add(1);
+    let modified = render_app_to_text(&app, 120, 45);
+    assert!(modified.contains("PF: myapp*"), "{modified}");
+    assert_profile_badge(&app, "PF: myapp*");
+
+    app.save_active_investigation_profile();
+    let saved = render_app_to_text(&app, 120, 45);
+    assert!(saved.contains("PF: myapp"), "{saved}");
+    assert!(!saved.contains("PF: myapp*"), "{saved}");
+    assert_profile_badge(&app, "PF: myapp");
+}
+
+#[test]
+fn save_delete_and_duplicate_names_are_explicit() {
     let mut app = make_test_app(1, 10);
     app.runtime.saved_investigation_profiles = vec![profile("First", Vec::new())];
     app.active_investigation_profile = Some("First".to_string());
-    app.open_investigation_profiles();
-
     app.graph_time_span_seconds = 600;
-    app.on_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE))
-        .unwrap();
+    app.save_active_investigation_profile();
     assert_eq!(
         app.runtime.saved_investigation_profiles[0].graph_time_span_seconds,
         600
     );
 
-    app.on_key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT))
-        .unwrap();
+    app.begin_save_investigation_profile_as();
     for ch in "first".chars() {
         app.push_investigation_profile_name_char(ch);
     }
@@ -153,18 +235,8 @@ fn save_rename_delete_and_duplicate_names_are_explicit() {
 
     app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
         .unwrap();
-    app.on_key(KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE))
-        .unwrap();
-    for _ in 0.."First".len() {
-        app.pop_investigation_profile_name_char();
-    }
-    for ch in "Renamed".chars() {
-        app.push_investigation_profile_name_char(ch);
-    }
-    app.commit_investigation_profile_name_input();
-    assert_eq!(app.runtime.saved_investigation_profiles[0].name, "Renamed");
-    assert_eq!(app.active_investigation_profile.as_deref(), Some("Renamed"));
-
+    assert!(app.investigation_profiles_dialog.is_none());
+    app.open_investigation_profiles();
     app.on_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))
         .unwrap();
     app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE))
@@ -276,10 +348,7 @@ fn startup_graph_restore_uses_new_ids_modes_and_reports_unresolved_templates() {
 #[test]
 fn profile_dialog_changes_the_unified_startup_mode() {
     let mut app = make_test_app(1, 10);
-    app.open_investigation_profiles();
-
-    app.on_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE))
-        .unwrap();
+    app.open_investigation_startup();
     app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
         .unwrap();
 
@@ -305,33 +374,35 @@ fn profile_dialog_changes_the_unified_startup_mode() {
         app.runtime.investigation_startup,
         InvestigationStartup::ChooseProfile
     );
-    assert!(matches!(
-        app.investigation_profiles_view(),
-        Some(InvestigationProfilesView::Browse)
-    ));
+    assert!(app.investigation_profiles_dialog.is_none());
 }
 
 #[test]
-fn profile_dialog_separates_current_selected_and_startup_without_fixed_list_gap() {
+fn profile_open_dialog_is_direct_and_has_no_management_shortcuts() {
     let mut app = make_test_app(1, 10);
     app.runtime.saved_investigation_profiles = vec![profile("monitor-winproc-tui", Vec::new())];
     app.open_investigation_profiles();
 
     let buffer = render_app_to_buffer(&app, 76, 35);
     let rendered = super::support::buffer_to_text(&buffer);
-    assert!(rendered.contains("CURRENT INVESTIGATION"), "{rendered}");
-    assert!(rendered.contains("Not saved as a Profile"), "{rendered}");
+    assert!(
+        rendered.contains("OPEN INVESTIGATION PROFILE"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("Select a profile, then press Enter to open it."),
+        "{rendered}"
+    );
     assert!(rendered.contains("SAVED PROFILES"), "{rendered}");
     assert!(
         rendered.contains("SELECTED PROFILE · monitor-winproc-tui"),
         "{rendered}"
     );
-    assert!(
-        rendered.contains("Startup behavior: Resume last"),
-        "{rendered}"
-    );
-    assert!(rendered.contains("u Startup"), "{rendered}");
-    assert!(rendered.contains("F2 Rename"), "{rendered}");
+    assert!(!rendered.contains("CURRENT INVESTIGATION"), "{rendered}");
+    assert!(!rendered.contains("s Save"), "{rendered}");
+    assert!(!rendered.contains("S Save New"), "{rendered}");
+    assert!(!rendered.contains("u Startup"), "{rendered}");
+    assert!(!rendered.contains("F2 Rename"), "{rendered}");
     assert!(rendered.contains("Delete Delete"), "{rendered}");
     assert!(!rendered.contains("Current: Unsaved"), "{rendered}");
     assert!(!rendered.contains("(*)"), "{rendered}");
@@ -350,35 +421,8 @@ fn profile_dialog_separates_current_selected_and_startup_without_fixed_list_gap(
 #[test]
 fn profile_dialog_startup_mode_has_mouse_parity() {
     let mut app = make_test_app(1, 10);
-    app.open_investigation_profiles();
+    app.open_investigation_startup();
     let screen = Rect::new(0, 0, 100, 45);
-    let mut link = None;
-    for y in 0..screen.height {
-        for x in 0..screen.width {
-            if crate::ui::investigation_profile_startup_link_at_for_screen(
-                screen,
-                x,
-                y,
-                app.investigation_profiles_entry_count(),
-            ) {
-                link = Some((x, y));
-                break;
-            }
-        }
-        if link.is_some() {
-            break;
-        }
-    }
-    let (column, row) = link.expect("Startup behavior should have a hit region");
-    app.on_mouse(
-        MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column,
-            row,
-            modifiers: KeyModifiers::NONE,
-        },
-        screen,
-    );
     assert!(matches!(
         app.investigation_profiles_view(),
         Some(InvestigationProfilesView::Startup { .. })
@@ -414,10 +458,7 @@ fn profile_dialog_startup_mode_has_mouse_parity() {
         app.runtime.investigation_startup,
         InvestigationStartup::ChooseProfile
     );
-    assert!(matches!(
-        app.investigation_profiles_view(),
-        Some(InvestigationProfilesView::Browse)
-    ));
+    assert!(app.investigation_profiles_dialog.is_none());
 }
 
 #[test]
@@ -567,12 +608,16 @@ fn profile_load_persists_the_active_profile_and_current_investigation_immediatel
     app.load_selected_investigation_profile();
 
     let loaded = crate::config::load_config(&path).unwrap();
-    let runtime = crate::config::build_runtime_config(loaded).unwrap();
-    let _ = std::fs::remove_file(&path);
     assert_eq!(
-        runtime.active_investigation_profile.as_deref(),
+        loaded
+            .investigation
+            .as_ref()
+            .and_then(|investigation| investigation.active_profile.as_deref()),
         Some("Persisted")
     );
+    let runtime = crate::config::build_runtime_config(loaded).unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(runtime.active_investigation_profile, None);
     assert_eq!(runtime.process_filters, ["persisted.exe"]);
 }
 
@@ -586,11 +631,16 @@ fn ctrl_t_opens_profiles_and_save_load_are_rejected_outside_live() {
         Some(InvestigationProfilesView::Browse)
     ));
     let rendered = render_app_to_text(&app, 100, 45);
-    assert!(rendered.contains("INVESTIGATION PROFILES"), "{rendered}");
-    assert!(rendered.contains("CURRENT INVESTIGATION"), "{rendered}");
-    assert!(rendered.contains("Not saved as a Profile"), "{rendered}");
-    assert!(rendered.contains("S Save New"), "{rendered}");
-    assert!(rendered.contains("u Startup"), "{rendered}");
+    assert!(
+        rendered.contains("OPEN INVESTIGATION PROFILE"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("Select a profile, then press Enter to open it."),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("S Save New"), "{rendered}");
+    assert!(!rendered.contains("u Startup"), "{rendered}");
 
     app.close_investigation_profiles();
     app.log_view_path = Some("loaded.log".into());

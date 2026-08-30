@@ -6,6 +6,7 @@ mod graph_state;
 mod help_and_footer;
 mod investigation_profiles;
 mod log_view;
+mod main_menu;
 mod open_files;
 mod performance;
 mod process_environment;

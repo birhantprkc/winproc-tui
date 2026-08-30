@@ -910,6 +910,146 @@ pub(crate) enum AppActivity {
     LogView,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum MainMenuSection {
+    Profile,
+    View,
+    Log,
+    Config,
+}
+
+impl MainMenuSection {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Profile => "Profile",
+            Self::View => "View",
+            Self::Log => "Log",
+            Self::Config => "Config",
+        }
+    }
+
+    pub(crate) const fn actions(self, activity: AppActivity) -> &'static [MainMenuAction] {
+        match (self, activity) {
+            (Self::Profile, AppActivity::Live) => LIVE_PROFILE_MAIN_MENU_ACTIONS,
+            (Self::Profile, AppActivity::Recording | AppActivity::LogView) => {
+                RESTRICTED_PROFILE_MAIN_MENU_ACTIONS
+            }
+            (Self::View, AppActivity::Live | AppActivity::Recording) => LIVE_VIEW_MAIN_MENU_ACTIONS,
+            (Self::View, AppActivity::LogView) => LOG_VIEW_VIEW_MAIN_MENU_ACTIONS,
+            (Self::Log, AppActivity::Live) => LIVE_LOG_MAIN_MENU_ACTIONS,
+            (Self::Log, AppActivity::LogView) => LOG_VIEW_LOG_MAIN_MENU_ACTIONS,
+            (Self::Log, AppActivity::Recording) => &[],
+            (Self::Config, _) => CONFIG_MAIN_MENU_ACTIONS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MainMenuAction {
+    OpenProfiles,
+    SaveProfile,
+    SaveProfileAs,
+    OpenColumns,
+    ToggleTrackedOnly,
+    ToggleTreeView,
+    StartRecording,
+    StopRecording,
+    ReturnToLive,
+    OpenLog,
+    OpenStartupBehavior,
+    Help,
+    QuitImmediately,
+    QuitWithConfirmation,
+}
+
+impl MainMenuAction {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::OpenProfiles => "Open",
+            Self::SaveProfile => "Save",
+            Self::SaveProfileAs => "Save As",
+            Self::OpenColumns => "Columns",
+            Self::ToggleTrackedOnly => "Tracked-only",
+            Self::ToggleTreeView => "Tree view",
+            Self::StartRecording => "Start Recording",
+            Self::StopRecording => "Stop Recording",
+            Self::ReturnToLive => "Return to Live",
+            Self::OpenLog => "Open",
+            Self::OpenStartupBehavior => "Startup Behavior",
+            Self::Help => "Help",
+            Self::QuitImmediately => "Quit",
+            Self::QuitWithConfirmation => "Quit",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MainMenuItem {
+    Section(MainMenuSection),
+    Action(MainMenuAction),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MainMenuRow {
+    pub(crate) item: MainMenuItem,
+    pub(crate) depth: u8,
+}
+
+const LIVE_MAIN_MENU_ITEMS: &[MainMenuItem] = &[
+    MainMenuItem::Section(MainMenuSection::Profile),
+    MainMenuItem::Action(MainMenuAction::OpenColumns),
+    MainMenuItem::Section(MainMenuSection::View),
+    MainMenuItem::Action(MainMenuAction::StartRecording),
+    MainMenuItem::Section(MainMenuSection::Log),
+    MainMenuItem::Section(MainMenuSection::Config),
+    MainMenuItem::Action(MainMenuAction::Help),
+    MainMenuItem::Action(MainMenuAction::QuitImmediately),
+];
+const RECORDING_MAIN_MENU_ITEMS: &[MainMenuItem] = &[
+    MainMenuItem::Section(MainMenuSection::Profile),
+    MainMenuItem::Action(MainMenuAction::OpenColumns),
+    MainMenuItem::Section(MainMenuSection::View),
+    MainMenuItem::Action(MainMenuAction::StopRecording),
+    MainMenuItem::Section(MainMenuSection::Config),
+    MainMenuItem::Action(MainMenuAction::Help),
+    MainMenuItem::Action(MainMenuAction::QuitWithConfirmation),
+];
+const LOG_VIEW_MAIN_MENU_ITEMS: &[MainMenuItem] = &[
+    MainMenuItem::Section(MainMenuSection::Profile),
+    MainMenuItem::Action(MainMenuAction::OpenColumns),
+    MainMenuItem::Section(MainMenuSection::View),
+    MainMenuItem::Section(MainMenuSection::Log),
+    MainMenuItem::Section(MainMenuSection::Config),
+    MainMenuItem::Action(MainMenuAction::Help),
+    MainMenuItem::Action(MainMenuAction::QuitImmediately),
+];
+
+const LIVE_PROFILE_MAIN_MENU_ACTIONS: &[MainMenuAction] = &[
+    MainMenuAction::OpenProfiles,
+    MainMenuAction::SaveProfile,
+    MainMenuAction::SaveProfileAs,
+];
+const RESTRICTED_PROFILE_MAIN_MENU_ACTIONS: &[MainMenuAction] = &[MainMenuAction::OpenProfiles];
+const LIVE_VIEW_MAIN_MENU_ACTIONS: &[MainMenuAction] = &[
+    MainMenuAction::ToggleTrackedOnly,
+    MainMenuAction::ToggleTreeView,
+];
+const LOG_VIEW_VIEW_MAIN_MENU_ACTIONS: &[MainMenuAction] = &[MainMenuAction::ToggleTrackedOnly];
+const LIVE_LOG_MAIN_MENU_ACTIONS: &[MainMenuAction] = &[MainMenuAction::OpenLog];
+const LOG_VIEW_LOG_MAIN_MENU_ACTIONS: &[MainMenuAction] =
+    &[MainMenuAction::OpenLog, MainMenuAction::ReturnToLive];
+const CONFIG_MAIN_MENU_ACTIONS: &[MainMenuAction] = &[MainMenuAction::OpenStartupBehavior];
+
+impl AppActivity {
+    pub(crate) const fn main_menu_items(self) -> &'static [MainMenuItem] {
+        match self {
+            Self::Live => LIVE_MAIN_MENU_ITEMS,
+            Self::Recording => RECORDING_MAIN_MENU_ITEMS,
+            Self::LogView => LOG_VIEW_MAIN_MENU_ITEMS,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum ProcessViewMode {
     #[default]
@@ -966,6 +1106,11 @@ pub(crate) struct App {
     pub(crate) selected_process_column_index: usize,
     pub(crate) process_metric_column_offset: usize,
     pub(crate) process_order_hold_until: Option<Instant>,
+    pub(crate) main_menu_activity: Option<AppActivity>,
+    pub(crate) main_menu_expanded: HashSet<MainMenuSection>,
+    pub(crate) main_menu_selected: usize,
+    pub(crate) main_menu_hovered: Option<usize>,
+    pub(crate) header_menu_hovered: bool,
     pub(crate) show_help: bool,
     pub(crate) help_scroll: ScrollableModalState,
     pub(crate) show_column_picker: bool,
@@ -1209,6 +1354,11 @@ impl App {
             selected_process_column_index,
             process_metric_column_offset: 0,
             process_order_hold_until: None,
+            main_menu_activity: None,
+            main_menu_expanded: HashSet::new(),
+            main_menu_selected: 0,
+            main_menu_hovered: None,
+            header_menu_hovered: false,
             show_help: false,
             help_scroll: ScrollableModalState {
                 page_size: 1,
@@ -1516,7 +1666,8 @@ impl App {
     }
 
     pub(crate) fn has_modal_focus(&self) -> bool {
-        self.show_help
+        self.main_menu_activity.is_some()
+            || self.show_help
             || self.show_column_picker
             || self.show_log_list
             || self.show_log_dir_dialog
@@ -6041,6 +6192,303 @@ impl App {
         };
     }
 
+    pub(crate) fn is_main_menu_open(&self) -> bool {
+        self.main_menu_activity.is_some()
+    }
+
+    fn main_menu_activity(&self) -> AppActivity {
+        self.main_menu_activity.unwrap_or_else(|| self.activity())
+    }
+
+    pub(crate) fn main_menu_rows(&self) -> Vec<MainMenuRow> {
+        let activity = self.main_menu_activity();
+        let mut rows = Vec::new();
+        for item in activity.main_menu_items() {
+            rows.push(MainMenuRow {
+                item: *item,
+                depth: 0,
+            });
+            if let MainMenuItem::Section(section) = item
+                && self.main_menu_expanded.contains(section)
+            {
+                rows.extend(
+                    section
+                        .actions(activity)
+                        .iter()
+                        .copied()
+                        .map(|action| MainMenuRow {
+                            item: MainMenuItem::Action(action),
+                            depth: 1,
+                        }),
+                );
+            }
+        }
+        rows
+    }
+
+    pub(crate) fn main_menu_row_label(&self, row: MainMenuRow) -> String {
+        match row.item {
+            MainMenuItem::Section(section) => format!(
+                "{} {}",
+                section.label(),
+                if self.main_menu_expanded.contains(&section) {
+                    '▾'
+                } else {
+                    '▸'
+                }
+            ),
+            MainMenuItem::Action(MainMenuAction::ToggleTrackedOnly) => format!(
+                "[{}] {}",
+                if self.watch_enabled { 'x' } else { ' ' },
+                MainMenuAction::ToggleTrackedOnly.label()
+            ),
+            MainMenuItem::Action(MainMenuAction::ToggleTreeView) => format!(
+                "[{}] {}",
+                if self.effective_process_view_mode() == ProcessViewMode::Tree {
+                    'x'
+                } else {
+                    ' '
+                },
+                MainMenuAction::ToggleTreeView.label()
+            ),
+            MainMenuItem::Action(action) => action.label().to_string(),
+        }
+    }
+
+    pub(crate) fn open_main_menu(&mut self) {
+        self.main_menu_activity = Some(self.activity());
+        self.main_menu_expanded.clear();
+        self.main_menu_selected = 0;
+        self.main_menu_hovered = None;
+        self.status = "Menu opened".to_string();
+    }
+
+    pub(crate) fn close_main_menu(&mut self) {
+        self.dismiss_main_menu();
+        self.ensure_visible_panel_focus();
+        self.status = "Menu closed".to_string();
+    }
+
+    pub(crate) fn dismiss_main_menu(&mut self) {
+        self.main_menu_activity = None;
+        self.main_menu_expanded.clear();
+        self.main_menu_selected = 0;
+        self.main_menu_hovered = None;
+    }
+
+    pub(crate) fn move_main_menu_selection_up(&mut self) {
+        let row_count = self.main_menu_rows().len();
+        self.main_menu_selected = if row_count == 0 {
+            0
+        } else if self.main_menu_selected == 0 {
+            row_count - 1
+        } else {
+            self.main_menu_selected - 1
+        };
+    }
+
+    pub(crate) fn move_main_menu_selection_down(&mut self) {
+        let row_count = self.main_menu_rows().len();
+        self.main_menu_selected = if row_count == 0 {
+            0
+        } else {
+            self.main_menu_selected.saturating_add(1) % row_count
+        };
+    }
+
+    pub(crate) fn move_main_menu_selection_home(&mut self) {
+        self.main_menu_selected = 0;
+    }
+
+    pub(crate) fn move_main_menu_selection_end(&mut self) {
+        self.main_menu_selected = self.main_menu_rows().len().saturating_sub(1);
+    }
+
+    pub(crate) fn set_main_menu_hovered(&mut self, index: Option<usize>) {
+        self.main_menu_hovered = index.filter(|index| *index < self.main_menu_rows().len());
+    }
+
+    pub(crate) fn expand_main_menu_selection(&mut self) {
+        let Some(MainMenuRow {
+            item: MainMenuItem::Section(section),
+            ..
+        }) = self.main_menu_rows().get(self.main_menu_selected).copied()
+        else {
+            return;
+        };
+        self.open_main_menu_section(section);
+    }
+
+    pub(crate) fn collapse_main_menu_selection(&mut self) {
+        let rows = self.main_menu_rows();
+        let Some(selected_row) = rows.get(self.main_menu_selected).copied() else {
+            return;
+        };
+        let section =
+            match selected_row.item {
+                MainMenuItem::Section(section) if self.main_menu_expanded.contains(&section) => {
+                    Some(section)
+                }
+                _ if selected_row.depth > 0 => rows[..=self.main_menu_selected]
+                    .iter()
+                    .rev()
+                    .find_map(|row| match row.item {
+                        MainMenuItem::Section(section) => Some(section),
+                        MainMenuItem::Action(_) => None,
+                    }),
+                _ => None,
+            };
+        let Some(section) = section else {
+            return;
+        };
+        self.collapse_main_menu_section(section);
+    }
+
+    pub(crate) fn toggle_main_menu_checkbox_selection(&mut self) {
+        let Some(opened_activity) = self.main_menu_activity else {
+            return;
+        };
+        if self.activity() != opened_activity {
+            self.dismiss_main_menu();
+            self.status = "Menu closed because the activity changed".to_string();
+            return;
+        }
+        let Some(MainMenuRow {
+            item: MainMenuItem::Action(action),
+            ..
+        }) = self.main_menu_rows().get(self.main_menu_selected).copied()
+        else {
+            return;
+        };
+        self.toggle_main_menu_checkbox(action);
+    }
+
+    fn toggle_main_menu_checkbox(&mut self, action: MainMenuAction) -> bool {
+        match action {
+            MainMenuAction::ToggleTrackedOnly => self.toggle_watch_list(),
+            MainMenuAction::ToggleTreeView => self.toggle_process_view_mode(),
+            _ => return false,
+        }
+        true
+    }
+
+    fn main_menu_section_row_index(&self, section: MainMenuSection) -> Option<usize> {
+        self.main_menu_rows()
+            .iter()
+            .position(|row| row.item == MainMenuItem::Section(section))
+    }
+
+    fn open_main_menu_section(&mut self, section: MainMenuSection) {
+        self.main_menu_expanded.insert(section);
+        let rows = self.main_menu_rows();
+        let parent_index = rows
+            .iter()
+            .position(|row| row.item == MainMenuItem::Section(section))
+            .unwrap_or(0);
+        self.main_menu_selected = rows
+            .get(parent_index.saturating_add(1))
+            .filter(|row| row.depth == 1)
+            .map(|_| parent_index.saturating_add(1))
+            .unwrap_or(parent_index);
+        self.main_menu_hovered = None;
+    }
+
+    fn collapse_main_menu_section(&mut self, section: MainMenuSection) {
+        self.main_menu_expanded.remove(&section);
+        self.main_menu_selected = self.main_menu_section_row_index(section).unwrap_or(0);
+        self.main_menu_hovered = None;
+    }
+
+    pub(crate) fn activate_main_menu_at(&mut self, index: usize) -> Result<()> {
+        if index >= self.main_menu_rows().len() {
+            return Ok(());
+        }
+        self.main_menu_selected = index;
+        self.activate_main_menu_selection_with_section_toggle(true)
+    }
+
+    pub(crate) fn activate_main_menu_selection(&mut self) -> Result<()> {
+        self.activate_main_menu_selection_with_section_toggle(false)
+    }
+
+    fn activate_main_menu_selection_with_section_toggle(
+        &mut self,
+        toggle_section: bool,
+    ) -> Result<()> {
+        let Some(opened_activity) = self.main_menu_activity else {
+            return Ok(());
+        };
+        if self.activity() != opened_activity {
+            self.dismiss_main_menu();
+            self.status = "Menu closed because the activity changed".to_string();
+            return Ok(());
+        }
+        let Some(row) = self.main_menu_rows().get(self.main_menu_selected).copied() else {
+            self.close_main_menu();
+            return Ok(());
+        };
+
+        let action = match row.item {
+            MainMenuItem::Section(section) => {
+                if toggle_section && self.main_menu_expanded.contains(&section) {
+                    self.collapse_main_menu_section(section);
+                } else {
+                    self.open_main_menu_section(section);
+                }
+                return Ok(());
+            }
+            MainMenuItem::Action(action) => action,
+        };
+
+        if self.toggle_main_menu_checkbox(action) {
+            return Ok(());
+        }
+
+        self.dismiss_main_menu();
+        match action {
+            MainMenuAction::OpenProfiles => {
+                self.open_investigation_profiles();
+                Ok(())
+            }
+            MainMenuAction::SaveProfile => {
+                self.save_active_investigation_profile();
+                Ok(())
+            }
+            MainMenuAction::SaveProfileAs => {
+                self.begin_save_investigation_profile_as();
+                Ok(())
+            }
+            MainMenuAction::OpenColumns => {
+                self.open_column_picker();
+                Ok(())
+            }
+            MainMenuAction::ToggleTrackedOnly | MainMenuAction::ToggleTreeView => unreachable!(),
+            MainMenuAction::StartRecording => self.toggle_recording(),
+            MainMenuAction::StopRecording => {
+                self.request_recording_stop();
+                Ok(())
+            }
+            MainMenuAction::ReturnToLive => {
+                self.exit_log_view();
+                Ok(())
+            }
+            MainMenuAction::OpenLog => self.open_log_list(),
+            MainMenuAction::OpenStartupBehavior => {
+                self.open_investigation_startup();
+                Ok(())
+            }
+            MainMenuAction::Help => {
+                self.open_help();
+                Ok(())
+            }
+            MainMenuAction::QuitImmediately => self.confirm_quit(),
+            MainMenuAction::QuitWithConfirmation => {
+                self.request_quit_confirmation();
+                Ok(())
+            }
+        }
+    }
+
     pub(crate) fn confirm_quit(&mut self) -> Result<()> {
         if self.recording_session.is_some() {
             let path = self
@@ -6553,6 +7001,7 @@ impl App {
             self.status = "Log view is unavailable during recording".to_string();
             return;
         }
+        self.dismiss_main_menu();
         self.sampling_worker.suspend_dotnet();
         self.log_view_path = Some(loaded.path.clone());
         self.log_view_interval_seconds = Some(loaded.interval_seconds);

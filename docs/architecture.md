@@ -134,6 +134,8 @@ The collection boundary deliberately produces one aggregate `Snapshot`. Explicit
 
 Modal input has priority over underlying panels, and non-modal actions depend on the current focus state. Text editing and confirmation flows consume their own input instead of falling through to screen navigation.
 
+`MENU` is top-level modal navigation, not a fourth user-visible activity. An otherwise-unhandled main-screen `Esc` or the leftmost mouse-accessible header control opens it in Live, Recording, or Log view, while existing dialogs and text-editing flows retain input priority. Its activity-specific hierarchy expands parents inline, permits multiple parents to remain expanded, omits unavailable actions, and exposes persistent startup behavior through Config. Menu actions reuse the same application transitions as their direct shortcuts and revalidate the activity that opened the menu before activation. Checkbox actions toggle in place without closing the menu. Sampling, freshness tracking, histories, and Recording continue while it is visible; Recording failures and automatic activity transitions dismiss it before presenting the higher-priority state.
+
 Drawing and hit testing derive regions from shared layout helpers. Semantic interaction state stores identities or sources rather than screen coordinates, so scroll, resize, and filtering cannot retarget an action accidentally.
 
 The UI module renders state and exposes geometry; it does not collect metrics or own histories. Exact keys, colors, emphasis, widths, marker shapes, focus order, and drawing positions remain in implementation and rendering tests.

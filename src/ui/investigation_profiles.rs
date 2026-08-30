@@ -13,17 +13,17 @@ use crate::{
         Theme,
         footer::{shortcut_spans, warning_shortcut_spans},
         widgets::{
-            block::{panel_block_focused, panel_title},
+            block::{modal_block_focused, modal_title},
             confirm_dialog::{self, centered_dialog_rect},
+            modal_scrim::{ModalScrim, ModalScrimStrength},
         },
     },
 };
 
 const DIALOG_WIDTH: u16 = 88;
-const CURRENT_LABEL_ROW: u16 = 0;
-const CURRENT_ROW: u16 = 1;
-const LIST_LABEL_ROW: u16 = 3;
-const LIST_ROW: u16 = 4;
+const INTRO_ROW: u16 = 0;
+const LIST_LABEL_ROW: u16 = 2;
+const LIST_ROW: u16 = 3;
 const MAX_LIST_HEIGHT: u16 = 6;
 const NAME_DIALOG_WIDTH: u16 = 60;
 const NAME_DIALOG_HEIGHT: u16 = 8;
@@ -48,10 +48,14 @@ pub(crate) fn draw_investigation_profiles(
         return;
     };
     match view {
+        InvestigationProfilesView::Browse => draw_browse(frame, area, app, theme),
         InvestigationProfilesView::Startup { .. } => draw_startup(frame, area, app, theme),
         InvestigationProfilesView::LoadReport { .. } => draw_load_report(frame, area, app, theme),
-        _ => {
+        InvestigationProfilesView::NameInput { .. } => draw_name_input(frame, area, app, theme),
+        InvestigationProfilesView::ConfirmDelete { .. }
+        | InvestigationProfilesView::ConfirmLoad { .. } => {
             draw_browse(frame, area, app, theme);
+            frame.render_widget(ModalScrim::new(theme, ModalScrimStrength::Dialog), area);
             match view {
                 InvestigationProfilesView::NameInput { .. } => {
                     draw_name_input(frame, area, app, theme)
@@ -73,31 +77,14 @@ pub(crate) fn draw_investigation_profiles(
 fn draw_browse(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: Theme) {
     let layout = browse_layout(area, app.investigation_profiles_entry_count());
     let popup = layout.popup;
-    let block = panel_block_focused(panel_title("INVESTIGATION PROFILES"), theme, true);
+    let block = modal_block_focused(modal_title("OPEN INVESTIGATION PROFILE", theme), theme);
     let content = layout.content;
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
-    draw_section_label(
-        frame,
-        content,
-        CURRENT_LABEL_ROW,
-        "CURRENT INVESTIGATION",
-        theme,
-    );
-    let current = app
-        .active_investigation_profile
-        .as_deref()
-        .map(|name| {
-            if app.active_investigation_profile_dirty() {
-                format!("Profile: {name} (modified)")
-            } else {
-                format!("Profile: {name}")
-            }
-        })
-        .unwrap_or_else(|| "Not saved as a Profile".to_string());
     frame.render_widget(
-        Paragraph::new(current).style(Style::default().fg(theme.text)),
-        row(content, CURRENT_ROW),
+        Paragraph::new("Select a profile, then press Enter to open it.")
+            .style(Style::default().fg(theme.text)),
+        row(content, INTRO_ROW),
     );
 
     draw_section_label(frame, content, LIST_LABEL_ROW, "SAVED PROFILES", theme);
@@ -217,40 +204,22 @@ fn draw_browse(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: The
             theme,
         );
         frame.render_widget(
-            Paragraph::new("No saved Profiles. Press s to save the current investigation.")
-                .style(Style::default().fg(theme.text)),
+            Paragraph::new("No saved profiles.").style(Style::default().fg(theme.text)),
             row(content, layout.summary_row),
         );
     }
 
     frame.render_widget(
-        Paragraph::new(format!(
-            "Startup behavior: {}",
-            app.runtime.investigation_startup.label()
-        ))
-        .style(Style::default().fg(theme.muted)),
-        row(content, layout.startup_row),
-    );
-
-    frame.render_widget(
-        Paragraph::new(Line::from(shortcut_spans(
-            &[("Esc", "Close"), ("↑/↓", "Select"), ("Enter", "Load")],
-            theme,
-        ))),
-        row(content, layout.navigation_shortcut_row),
-    );
-    frame.render_widget(
         Paragraph::new(Line::from(shortcut_spans(
             &[
-                ("s", "Save"),
-                ("S", "Save New"),
-                ("u", "Startup"),
-                ("F2", "Rename"),
+                ("↑/↓", "Select"),
+                ("Enter", "Open"),
                 ("Delete", "Delete"),
+                ("Esc", "Close"),
             ],
             theme,
         ))),
-        row(content, layout.management_shortcut_row),
+        row(content, layout.shortcut_row),
     );
 }
 
@@ -260,7 +229,7 @@ fn draw_startup(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: Th
         return;
     };
     let popup = startup_dialog_area(area);
-    let block = panel_block_focused(panel_title("STARTUP BEHAVIOR"), theme, true);
+    let block = modal_block_focused(modal_title("STARTUP BEHAVIOR", theme), theme);
     let content = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
@@ -292,7 +261,7 @@ fn draw_startup(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: Th
     }
     frame.render_widget(
         Paragraph::new(Line::from(shortcut_spans(
-            &[("↑/↓", "Select"), ("Enter", "Apply"), ("Esc", "Back")],
+            &[("↑/↓", "Select"), ("Enter", "Apply"), ("Esc", "Close")],
             theme,
         ))),
         row(content, STARTUP_SHORTCUT_ROW),
@@ -312,9 +281,8 @@ fn draw_name_input(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme:
     let popup = centered_dialog_rect(area, NAME_DIALOG_WIDTH, NAME_DIALOG_HEIGHT);
     let title = match purpose {
         ProfileNameInputPurpose::SaveAs => "SAVE INVESTIGATION PROFILE AS",
-        ProfileNameInputPurpose::Rename => "RENAME INVESTIGATION PROFILE",
     };
-    let block = panel_block_focused(panel_title(title), theme, true);
+    let block = modal_block_focused(modal_title(title, theme), theme);
     let content = block.inner(popup);
     let input_area = row(content, 2);
     let (input, cursor_x) = input_view(draft, *cursor, input_area.width as usize);
@@ -325,7 +293,7 @@ fn draw_name_input(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme:
         row(content, 0),
     );
     frame.render_widget(
-        Paragraph::new(input).style(Style::default().fg(theme.text).bg(theme.panel_alt)),
+        Paragraph::new(input).style(Style::default().fg(theme.text).bg(theme.panel)),
         input_area,
     );
     if let Some(error) = error {
@@ -446,7 +414,7 @@ fn draw_load_report(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme
         return;
     };
     let popup = report_dialog_area(area);
-    let block = panel_block_focused(panel_title("PROFILE LOAD RESULT"), theme, true);
+    let block = modal_block_focused(modal_title("PROFILE LOAD RESULT", theme), theme);
     let content = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
@@ -537,16 +505,6 @@ pub(crate) fn investigation_profile_startup_at_for_screen(
         })
 }
 
-pub(crate) fn investigation_profile_startup_link_at_for_screen(
-    area: Rect,
-    x: u16,
-    y: u16,
-    profile_count: usize,
-) -> bool {
-    let layout = browse_layout(area, profile_count);
-    contains(row(layout.content, layout.startup_row), x, y)
-}
-
 fn profile_row_text(
     cursor: &str,
     name: &str,
@@ -630,23 +588,15 @@ struct BrowseLayout {
     list: Rect,
     summary_label_row: u16,
     summary_row: u16,
-    startup_row: u16,
-    navigation_shortcut_row: u16,
-    management_shortcut_row: u16,
+    shortcut_row: u16,
 }
 
 fn browse_layout(area: Rect, profile_count: usize) -> BrowseLayout {
     let list_height = (profile_count as u16).clamp(1, MAX_LIST_HEIGHT);
     let summary_label_row = LIST_ROW.saturating_add(list_height).saturating_add(1);
     let summary_row = summary_label_row.saturating_add(1);
-    let startup_row = summary_row.saturating_add(6);
-    let navigation_shortcut_row = startup_row.saturating_add(2);
-    let management_shortcut_row = navigation_shortcut_row.saturating_add(1);
-    let popup = centered_dialog_rect(
-        area,
-        DIALOG_WIDTH,
-        management_shortcut_row.saturating_add(3),
-    );
+    let shortcut_row = summary_row.saturating_add(6);
+    let popup = centered_dialog_rect(area, DIALOG_WIDTH, shortcut_row.saturating_add(3));
     let content = popup.inner(ratatui::layout::Margin {
         vertical: 1,
         horizontal: 1,
@@ -663,9 +613,7 @@ fn browse_layout(area: Rect, profile_count: usize) -> BrowseLayout {
         list,
         summary_label_row,
         summary_row,
-        startup_row,
-        navigation_shortcut_row,
-        management_shortcut_row,
+        shortcut_row,
     }
 }
 

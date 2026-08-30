@@ -11,7 +11,11 @@ use crate::{
     app::logs::LogSummary,
     ui::{
         Theme,
-        widgets::{block::panel_title, confirm_dialog, scrollable_modal::ScrollableModal},
+        widgets::{
+            block::{modal_block_focused, modal_title},
+            confirm_dialog,
+            scrollable_modal::ScrollableModal,
+        },
     },
 };
 
@@ -77,8 +81,7 @@ pub(crate) fn draw_log_dir_dialog(
 ) {
     let popup =
         confirm_dialog::centered_dialog_rect(area, LOG_DIR_DIALOG_WIDTH, LOG_DIR_DIALOG_HEIGHT);
-    let block =
-        crate::ui::widgets::block::panel_block_focused(panel_title("LOG DIRECTORY"), theme, true);
+    let block = modal_block_focused(modal_title("LOG DIRECTORY", theme), theme);
     let content = block.inner(popup);
     let input_area = Rect::new(
         content.x,
@@ -99,7 +102,7 @@ pub(crate) fn draw_log_dir_dialog(
         Rect::new(content.x, content.y, content.width, 1),
     );
     frame.render_widget(
-        Paragraph::new(input).style(Style::default().fg(theme.text).bg(theme.panel_alt)),
+        Paragraph::new(input).style(Style::default().fg(theme.text).bg(theme.panel)),
         input_area,
     );
     if let Some(error) = &app.log_dir_error {
@@ -364,5 +367,4 @@ fn log_list_modal_for_height(content_height: u16) -> ScrollableModal {
         content_height.max(LOG_LIST_HEADER_LINE_COUNT + 1),
         FOOTER_HEIGHT,
     )
-    .with_bold_title()
 }

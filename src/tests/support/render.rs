@@ -54,9 +54,14 @@ pub(in crate::tests) fn assert_modal_rect_focus_border(app: &App, popup: Rect) {
         "modal border should use the high-contrast neutral focus color"
     );
     assert_eq!(
+        buffer[(process_table.x, process_table.y)].symbol(),
+        "╭",
+        "underlying process table should not stay focused while a modal is open"
+    );
+    assert_ne!(
         buffer[(process_table.x, process_table.y)].fg,
         theme.border,
-        "underlying process table should not stay focused while a modal is open"
+        "underlying process table border should be dimmed while a modal is open"
     );
 }
 
@@ -80,18 +85,25 @@ pub(in crate::tests) fn assert_dialog_title_style(
     title: &str,
     theme: ui::Theme,
 ) {
-    assert_title_style(buffer, title, theme.focus_border);
+    assert_title_style(
+        buffer,
+        title,
+        theme.focus_border,
+        ui::theme::contrasting_foreground(theme.focus_border, theme),
+    );
 }
 
 pub(in crate::tests) fn assert_title_style(
     buffer: &ratatui::buffer::Buffer,
     title: &str,
-    expected_color: ratatui::style::Color,
+    expected_background: ratatui::style::Color,
+    expected_foreground: ratatui::style::Color,
 ) {
     let (x, y) = find_text_position(buffer, title)
         .unwrap_or_else(|| panic!("dialog title should render: {title}"));
     let cell = &buffer[(x, y)];
-    assert_eq!(cell.fg, expected_color, "dialog title: {title}");
+    assert_eq!(cell.fg, expected_foreground, "dialog title: {title}");
+    assert_eq!(cell.bg, expected_background, "dialog title: {title}");
     assert!(
         cell.modifier.contains(Modifier::BOLD),
         "dialog title should be bold: {title}"

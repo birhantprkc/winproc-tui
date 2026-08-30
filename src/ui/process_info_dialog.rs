@@ -20,7 +20,8 @@ use crate::{
         process_modules::{
             draw_process_modules_tab, process_modules_scrollbar_area, process_modules_total_rows,
         },
-        widgets::{block::panel_block_focused, scrollable_modal::ScrollableModal},
+        theme::contrasting_foreground,
+        widgets::{block::modal_block_focused, scrollable_modal::ScrollableModal},
     },
 };
 
@@ -50,7 +51,7 @@ pub(crate) fn draw_process_info_dialog(
     let layout = process_info_dialog_layout_for_screen(screen);
     frame.render_widget(Clear, layout.area);
     frame.render_widget(
-        panel_block_focused(process_info_title(app, theme), theme, true),
+        modal_block_focused(process_info_title(app, theme), theme),
         layout.area,
     );
     draw_tabs(
@@ -159,18 +160,19 @@ pub(crate) fn process_info_scrollbar_area_for_screen(screen: Rect, app: &App) ->
 }
 
 fn process_info_title(app: &App, theme: Theme) -> Line<'static> {
+    let foreground = contrasting_foreground(theme.focus_border, theme);
+    let title_style = Style::default().fg(foreground).bg(theme.focus_border);
     let mut spans = vec![Span::styled(
-        "PROCESS INFO",
-        Style::default().add_modifier(Modifier::BOLD),
+        " PROCESS INFO",
+        title_style.add_modifier(Modifier::BOLD),
     )];
     if let Some(process) = app.process_info_target_process() {
         spans.push(Span::styled(
             format!(" · {} · PID {}", process.name, process.pid),
-            Style::default()
-                .fg(theme.muted)
-                .remove_modifier(Modifier::BOLD),
+            title_style.remove_modifier(Modifier::BOLD),
         ));
     }
+    spans.push(Span::styled(" ", title_style));
     Line::from(spans)
 }
 
@@ -191,11 +193,11 @@ fn draw_tabs(
                     .fg(theme.focus_border)
                     .bg(theme.focus_surface)
             } else {
-                Style::default().fg(theme.accent).bg(theme.panel)
+                Style::default().fg(theme.accent).bg(theme.panel_alt)
             };
             style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
-            Style::default().fg(theme.muted).bg(theme.panel)
+            Style::default().fg(theme.muted).bg(theme.panel_alt)
         };
         frame.render_widget(
             Paragraph::new(format!(" {} ", tab.label())).style(style),
@@ -435,7 +437,7 @@ fn render_scrollable_lines(
     let offset = offset.min(total.saturating_sub(rows));
     frame.render_widget(
         Paragraph::new(lines)
-            .style(Style::default().fg(theme.text).bg(theme.panel))
+            .style(Style::default().fg(theme.text).bg(theme.panel_alt))
             .scroll((offset as u16, 0)),
         area,
     );
@@ -450,7 +452,7 @@ fn render_scrollable_lines(
         .end_symbol(Some("▼"))
         .thumb_symbol("█")
         .track_symbol(Some("│"))
-        .style(Style::default().fg(theme.muted).bg(theme.panel))
+        .style(Style::default().fg(theme.muted).bg(theme.panel_alt))
         .thumb_style(
             Style::default()
                 .fg(if focused {
@@ -458,7 +460,7 @@ fn render_scrollable_lines(
                 } else {
                     theme.muted
                 })
-                .bg(theme.panel),
+                .bg(theme.panel_alt),
         );
     frame.render_stateful_widget(scrollbar, scrollbar_area, &mut state);
 }
@@ -490,7 +492,7 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, footer: Rect, app: &App, theme: T
     }
     frame.render_widget(
         Paragraph::new(Line::from(shortcut_spans(app, footer.width, theme)))
-            .style(Style::default().bg(theme.panel)),
+            .style(Style::default().bg(theme.panel_alt)),
         footer,
     );
 }

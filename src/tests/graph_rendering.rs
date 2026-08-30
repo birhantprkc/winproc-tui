@@ -397,7 +397,14 @@ fn panel_and_dialog_title_names_are_uppercase_and_bold_in_all_color_schemes() {
         assert_dialog_title_style(&process_info, "PROCESS INFO", theme);
         let (metadata_x, metadata_y) = find_text_position(&process_info, "proc-0 · PID 0")
             .expect("Process Info target metadata should render");
-        assert_eq!(process_info[(metadata_x, metadata_y)].fg, theme.muted);
+        assert_eq!(
+            process_info[(metadata_x, metadata_y)].fg,
+            ui::theme::contrasting_foreground(theme.focus_border, theme)
+        );
+        assert_eq!(
+            process_info[(metadata_x, metadata_y)].bg,
+            theme.focus_border
+        );
         assert!(
             !process_info[(metadata_x, metadata_y)]
                 .modifier
@@ -418,18 +425,76 @@ fn panel_and_dialog_title_names_are_uppercase_and_bold_in_all_color_schemes() {
 
         app.open_investigation_profiles();
         let profiles = render_app_to_buffer(&app, screen.width, screen.height);
-        assert_dialog_title_style(&profiles, "INVESTIGATION PROFILES", theme);
+        assert_dialog_title_style(&profiles, "OPEN INVESTIGATION PROFILE", theme);
         app.close_investigation_profiles();
 
         app.show_display_area_warning = true;
         let warning = render_app_to_buffer(&app, screen.width, screen.height);
-        assert_title_style(&warning, "WARNING", theme.warning);
+        assert_title_style(
+            &warning,
+            "WARNING",
+            theme.warning,
+            ui::theme::contrasting_foreground(theme.warning, theme),
+        );
         app.show_display_area_warning = false;
 
         app.show_quit_confirmation = true;
         let confirm = render_app_to_buffer(&app, screen.width, screen.height);
-        assert_title_style(&confirm, "CONFIRM", theme.warning);
+        assert_title_style(
+            &confirm,
+            "CONFIRM",
+            theme.warning,
+            ui::theme::contrasting_foreground(theme.warning, theme),
+        );
     }
+}
+
+#[test]
+fn modal_scrim_dims_the_workspace_and_keeps_the_dialog_elevated() {
+    let screen = Rect::new(0, 0, 120, 45);
+    let mut app = make_test_app(3, 10);
+    app.focused_panel = FocusedPanel::System;
+    let process_panel = main_panel_areas_for_app(screen, &app).processes.area;
+    let base = render_app_to_buffer(&app, screen.width, screen.height);
+    assert_eq!(
+        base[(process_panel.x, process_panel.y)].fg,
+        app.theme().border
+    );
+
+    app.show_recording_path_dialog = true;
+    app.recording_path_draft = "C:/logs/example.log".to_string();
+    app.recording_path_cursor = app.recording_path_draft.len();
+    let modal = render_app_to_buffer(&app, screen.width, screen.height);
+    assert_eq!(modal[(process_panel.x, process_panel.y)].symbol(), "╭");
+    assert_ne!(
+        modal[(process_panel.x, process_panel.y)].fg,
+        base[(process_panel.x, process_panel.y)].fg
+    );
+
+    let (message_x, message_y) = find_text_position(
+        &modal,
+        "Confirm the log file and interval, then press Enter to start.",
+    )
+    .expect("recording dialog message");
+    assert_eq!(modal[(message_x, message_y)].bg, app.theme().panel_alt);
+}
+
+#[test]
+fn nested_confirmation_dims_its_parent_dialog() {
+    let screen = Rect::new(0, 0, 120, 45);
+    let mut app = make_test_app(3, 10);
+    app.show_recording_path_dialog = true;
+    app.recording_path_draft = "C:/logs/example.log".to_string();
+    app.recording_path_cursor = app.recording_path_draft.len();
+    let parent = render_app_to_buffer(&app, screen.width, screen.height);
+    let (label_x, label_y) = find_text_position(&parent, "Log file").expect("recording path label");
+
+    app.show_recording_overwrite_confirmation = true;
+    let nested = render_app_to_buffer(&app, screen.width, screen.height);
+    assert_eq!(nested[(label_x, label_y)].symbol(), "L");
+    assert_ne!(nested[(label_x, label_y)].fg, parent[(label_x, label_y)].fg);
+    let (title_x, title_y) = find_text_position(&nested, "CONFIRM").expect("confirm title");
+    assert_eq!(nested[(title_x, title_y)].bg, app.theme().warning);
 }
 
 #[test]
@@ -474,7 +539,7 @@ fn dialog_shortcut_guidance_is_separated_from_content_by_a_blank_row() {
     cases.push((
         "investigation-profiles",
         render_app_to_buffer(&profiles, screen.width, screen.height),
-        "↑/↓ Select  Enter Load",
+        "↑/↓ Select  Enter Open",
     ));
 
     let mut recording = make_test_app(3, 10);

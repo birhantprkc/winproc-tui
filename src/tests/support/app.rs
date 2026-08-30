@@ -177,6 +177,11 @@ pub(in crate::tests) fn make_test_app_with_workers(
         selected_process_column_index: 2,
         process_metric_column_offset: 0,
         process_order_hold_until: None,
+        main_menu_activity: None,
+        main_menu_expanded: std::collections::HashSet::new(),
+        main_menu_selected: 0,
+        main_menu_hovered: None,
+        header_menu_hovered: false,
         show_help: false,
         help_scroll: ui::widgets::scrollable_modal::ScrollableModalState {
             page_size: 1,

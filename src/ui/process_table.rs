@@ -964,11 +964,6 @@ fn process_title_segment_style(kind: ProcessTitleSegmentKind, app: &App, theme: 
                 .fg(theme.muted)
                 .remove_modifier(Modifier::BOLD)
         }
-        ProcessTitleSegmentKind::ViewMode if app.process_view_mode == ProcessViewMode::Tree => {
-            Style::default()
-                .fg(theme.accent)
-                .remove_modifier(Modifier::BOLD)
-        }
         ProcessTitleSegmentKind::ViewMode => Style::default()
             .fg(theme.muted)
             .remove_modifier(Modifier::BOLD),

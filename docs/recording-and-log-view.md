@@ -45,7 +45,7 @@ When no configured name matches a live process, frames still contain system metr
 
 Live sampling and Live history remain at one-second resolution. Recording independently selects a `1s`, `2s`, `5s`, or `10s` aggregation interval and owns the pending accumulator.
 
-The current selector value is the default for the next Recording and belongs to the Current Investigation. It is restored from the last investigation at startup and from an Investigation Profile when loaded in Live. Loading or saving active investigation state is unavailable during Recording, and loading is unavailable in Log view. Profile rename and delete operations do not affect activity state.
+The current selector value is the default for the next Recording and belongs to the Current Investigation. It is restored from the last investigation at startup and from an Investigation Profile when opened in Live. Opening or saving active investigation state is unavailable during Recording, and opening is unavailable in Log view. Profile deletion does not affect activity state.
 
 Available values are averaged independently per process identity and GPU adapter. Missing values and absent processes do not contribute zero. Stopping, quitting, or reaching the duration limit flushes a partial final window before the clean end record.
 

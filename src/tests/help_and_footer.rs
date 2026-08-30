@@ -135,9 +135,20 @@ fn help_dialog_buffer_shows_two_column_layout() {
         rendered.contains("Start recording / confirm stop"),
         "{rendered}"
     );
+    assert!(rendered.contains("Open main menu"), "{rendered}");
+    assert!(
+        rendered.contains("Navigate main menu hierarchy"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("Toggle selected main menu checkbox"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("Click [MENU]"), "{rendered}");
+    assert!(!rendered.contains("Show MEM / GPU"), "{rendered}");
     assert!(rendered.contains("Pause / Resume"), "{rendered}");
     assert!(
-        rendered.contains("Open Investigation Profiles"),
+        rendered.contains("Open an Investigation Profile"),
         "{rendered}"
     );
     assert!(rendered.contains("Copy selected row"), "{rendered}");
@@ -228,7 +239,7 @@ fn help_dialog_header_and_shortcuts_use_footer_like_styles() {
         find_text_position(&buffer, "Ctrl+F").expect("shortcut key should be rendered");
     let key_cell = &buffer[(key_x, key_y)];
     assert_eq!(key_cell.fg, theme.key_hint);
-    assert_eq!(key_cell.bg, theme.panel);
+    assert_eq!(key_cell.bg, theme.panel_alt);
     assert!(!key_cell.modifier.contains(ratatui::style::Modifier::BOLD));
 
     let label_cell = &buffer[(key_x + "Ctrl+F ".len() as u16, key_y)];
@@ -365,7 +376,7 @@ fn footer_shows_process_context_on_one_row() {
     assert!(rendered.contains("Shift+T Tracked-only"), "{rendered}");
     assert!(rendered.contains("d Kill"), "{rendered}");
     assert!(rendered.contains("Ctrl+F Filter"), "{rendered}");
-    assert!(rendered.contains("Esc Quit"), "{rendered}");
+    assert!(rendered.contains("ESC Menu"), "{rendered}");
     assert!(!rendered.contains("Tab Focus"), "{rendered}");
     assert!(rendered.contains("F12 Color"), "{rendered}");
     assert!(rendered.contains("F1/? Help"), "{rendered}");
@@ -397,11 +408,12 @@ fn footer_keeps_primary_action_visible_at_narrow_width() {
     let app = make_test_app(3, 10);
     let buffer = render_app_to_buffer(&app, 30, 24);
     let footer = Rect::new(0, 23, 30, 1);
-    let (action_x, action_y) = find_text_position_in_area(&buffer, footer, "Space Graph")
-        .expect("primary action should remain visible");
+    let (menu_x, menu_y) = find_text_position_in_area(&buffer, footer, "ESC Menu")
+        .expect("menu shortcut should remain visible");
 
-    assert_eq!(action_x, 0);
-    assert_eq!(action_y, footer.y);
+    assert_eq!(menu_x, 0);
+    assert_eq!(menu_y, footer.y);
+    assert!(find_text_position_in_area(&buffer, footer, "Space Graph").is_some());
     assert!(find_text_position_in_area(&buffer, footer, "PROCESSES").is_none());
     assert!(find_text_position(&buffer, "Ctrl+O").is_none());
 }
@@ -430,6 +442,7 @@ fn footer_shortcuts_follow_the_focused_panel() {
     app.focused_panel = FocusedPanel::System;
     let system = render_app_to_text(&app, 170, 30);
     assert!(system.contains("i System info"), "{system}");
+    assert!(!system.contains("m/g MEM/GPU"), "{system}");
     assert!(!system.contains("Up/Down Metric"), "{system}");
     assert!(!system.contains("Left/Right Column"), "{system}");
 
@@ -524,7 +537,8 @@ fn help_dialog_takes_focus_border_from_previous_panel() {
     let buffer = render_app_to_buffer(&app, screen.width, screen.height);
     let process_table = main_panel_areas_for_app(screen, &app).processes.area;
     assert_eq!(buffer[(popup.x, popup.y)].fg, app.theme().focus_border);
-    assert_eq!(
+    assert_eq!(buffer[(process_table.x, process_table.y)].symbol(), "╭");
+    assert_ne!(
         buffer[(process_table.x, process_table.y)].fg,
         app.theme().border
     );

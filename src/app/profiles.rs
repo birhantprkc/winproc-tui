@@ -16,7 +16,6 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProfileNameInputPurpose {
     SaveAs,
-    Rename,
 }
 
 #[derive(Debug, Clone)]
@@ -125,11 +124,13 @@ impl App {
     }
 
     pub(crate) fn open_investigation_startup(&mut self) {
-        if let Some(dialog) = self.investigation_profiles_dialog.as_mut() {
-            dialog.view = InvestigationProfilesView::Startup {
+        self.investigation_profiles_dialog = Some(InvestigationProfilesDialog {
+            index: 0,
+            scroll: ScrollableModalState::default(),
+            view: InvestigationProfilesView::Startup {
                 selected: self.runtime.investigation_startup,
-            };
-        }
+            },
+        });
         self.status = "Startup behavior".to_string();
     }
 
@@ -170,9 +171,7 @@ impl App {
             return;
         };
         if self.set_investigation_startup(selected) {
-            if let Some(dialog) = self.investigation_profiles_dialog.as_mut() {
-                dialog.view = InvestigationProfilesView::Browse;
-            }
+            self.investigation_profiles_dialog = None;
             self.status = format!("Startup behavior: {}", selected.label());
         }
     }
@@ -293,7 +292,17 @@ impl App {
         if !self.profile_workspace_available() {
             return;
         }
-        self.set_profile_name_input(ProfileNameInputPurpose::SaveAs, String::new());
+        self.investigation_profiles_dialog = Some(InvestigationProfilesDialog {
+            index: 0,
+            scroll: ScrollableModalState::default(),
+            view: InvestigationProfilesView::NameInput {
+                purpose: ProfileNameInputPurpose::SaveAs,
+                draft: String::new(),
+                cursor: 0,
+                error: None,
+            },
+        });
+        self.status = "Save Investigation Profile As".to_string();
     }
 
     pub(crate) fn save_active_investigation_profile(&mut self) {
@@ -325,27 +334,16 @@ impl App {
         }
     }
 
-    pub(crate) fn begin_rename_investigation_profile(&mut self) {
-        let Some(profile) = self.selected_investigation_profile() else {
-            self.status = "No Investigation Profile selected".to_string();
-            return;
-        };
-        self.set_profile_name_input(ProfileNameInputPurpose::Rename, profile.name.clone());
-    }
-
-    fn set_profile_name_input(&mut self, purpose: ProfileNameInputPurpose, draft: String) {
-        let cursor = draft.len();
-        if let Some(dialog) = self.investigation_profiles_dialog.as_mut() {
-            dialog.view = InvestigationProfilesView::NameInput {
-                purpose,
-                draft,
-                cursor,
-                error: None,
-            };
-        }
-    }
-
     pub(crate) fn cancel_investigation_profile_subdialog(&mut self) {
+        let close_dialog = matches!(
+            self.investigation_profiles_view(),
+            Some(InvestigationProfilesView::Startup { .. })
+                | Some(InvestigationProfilesView::NameInput { .. })
+        );
+        if close_dialog {
+            self.close_investigation_profiles();
+            return;
+        }
         if let Some(dialog) = self.investigation_profiles_dialog.as_mut() {
             dialog.view = InvestigationProfilesView::Browse;
             dialog.scroll.offset = 0;
@@ -469,7 +467,6 @@ impl App {
 
         match purpose {
             ProfileNameInputPurpose::SaveAs => self.save_investigation_profile_as(name),
-            ProfileNameInputPurpose::Rename => self.rename_selected_investigation_profile(name),
         }
     }
 
@@ -498,63 +495,12 @@ impl App {
             .push(self.capture_investigation_profile(name.clone()));
         self.active_investigation_profile = Some(name.clone());
         if self.persist_investigation_profile_changes() {
-            if let Some(dialog) = self.investigation_profiles_dialog.as_mut() {
-                dialog.index = self
-                    .runtime
-                    .saved_investigation_profiles
-                    .len()
-                    .saturating_sub(1);
-                dialog.view = InvestigationProfilesView::Browse;
-            }
-            self.ensure_investigation_profile_selection_visible();
+            self.investigation_profiles_dialog = None;
             self.status = format!("Saved Investigation Profile: {name}");
         } else {
             self.runtime.saved_investigation_profiles.pop();
             self.active_investigation_profile = previous_active;
             self.set_investigation_profile_name_error("Save failed.");
-        }
-    }
-
-    fn rename_selected_investigation_profile(&mut self, name: String) {
-        let index = self.investigation_profiles_index();
-        if index >= self.runtime.saved_investigation_profiles.len() {
-            self.set_investigation_profile_name_error("No Investigation Profile selected.");
-            return;
-        }
-        if self
-            .runtime
-            .saved_investigation_profiles
-            .iter()
-            .enumerate()
-            .any(|(saved_index, profile)| {
-                saved_index != index && profile.name.eq_ignore_ascii_case(&name)
-            })
-        {
-            self.set_investigation_profile_name_error(
-                "An Investigation Profile with that name already exists.",
-            );
-            return;
-        }
-        let old_name = self.runtime.saved_investigation_profiles[index]
-            .name
-            .clone();
-        let previous_active = self.active_investigation_profile.clone();
-        self.runtime.saved_investigation_profiles[index].name = name.clone();
-        if self
-            .active_investigation_profile
-            .as_deref()
-            .is_some_and(|active| active.eq_ignore_ascii_case(&old_name))
-        {
-            self.active_investigation_profile = Some(name.clone());
-        }
-        if self.persist_investigation_profile_changes() {
-            if let Some(dialog) = self.investigation_profiles_dialog.as_mut() {
-                dialog.view = InvestigationProfilesView::Browse;
-            }
-            self.status = format!("Renamed Investigation Profile: {name}");
-        } else {
-            self.runtime.saved_investigation_profiles[index].name = old_name;
-            self.active_investigation_profile = previous_active;
         }
     }
 

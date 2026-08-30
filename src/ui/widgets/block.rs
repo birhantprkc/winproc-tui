@@ -1,10 +1,10 @@
 use ratatui::{
-    prelude::{Modifier, Style},
+    prelude::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders},
 };
 
-use crate::ui::Theme;
+use crate::ui::{Theme, theme::contrasting_foreground};
 
 pub(crate) fn panel_title(title: &'static str) -> Line<'static> {
     Line::from(Span::styled(
@@ -35,6 +35,33 @@ pub(crate) fn panel_block_focused<'a>(
     } else {
         block
     }
+}
+
+pub(crate) fn modal_title(title: impl Into<String>, theme: Theme) -> Line<'static> {
+    semantic_modal_title(title, theme.focus_border, theme)
+}
+
+pub(crate) fn semantic_modal_title(
+    title: impl Into<String>,
+    background: Color,
+    theme: Theme,
+) -> Line<'static> {
+    Line::from(Span::styled(
+        format!(" {} ", title.into().trim()),
+        Style::default()
+            .fg(contrasting_foreground(background, theme))
+            .bg(background)
+            .add_modifier(Modifier::BOLD),
+    ))
+}
+
+pub(crate) fn modal_block_focused<'a>(title: impl Into<Line<'a>>, theme: Theme) -> Block<'a> {
+    Block::default()
+        .title(title.into())
+        .borders(Borders::ALL)
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(theme.focus_border))
+        .style(Style::default().bg(theme.panel_alt))
 }
 
 pub(crate) fn graph_workspace_block<'a>(

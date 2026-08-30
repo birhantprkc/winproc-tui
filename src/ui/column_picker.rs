@@ -185,5 +185,4 @@ fn column_picker_modal() -> ScrollableModal {
         column_picker_content_height(),
         FOOTER_HEIGHT,
     )
-    .with_bold_title()
 }

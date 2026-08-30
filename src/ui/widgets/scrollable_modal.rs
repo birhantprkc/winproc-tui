@@ -1,11 +1,14 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    prelude::{Modifier, Style},
-    text::{Line, Span, Text},
+    prelude::Style,
+    text::{Line, Text},
     widgets::{Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
-use crate::ui::{Theme, widgets::block::panel_block_focused};
+use crate::ui::{
+    Theme,
+    widgets::block::{modal_block_focused, modal_title},
+};
 
 const HORIZONTAL_CONTENT_PADDING: u16 = 1;
 const FOOTER_GAP_HEIGHT: u16 = 1;
@@ -13,10 +16,19 @@ const FOOTER_GAP_HEIGHT: u16 = 1;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ScrollableModal {
     pub(crate) title: &'static str,
-    pub(crate) title_bold: bool,
     pub(crate) content_width: u16,
     pub(crate) content_height: u16,
     pub(crate) footer_height: u16,
+    placement: ScrollableModalPlacement,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum ScrollableModalPlacement {
+    #[default]
+    Centered,
+    TopLeft {
+        top_offset: u16,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -49,15 +61,15 @@ impl ScrollableModal {
     ) -> Self {
         Self {
             title,
-            title_bold: false,
             content_width,
             content_height,
             footer_height,
+            placement: ScrollableModalPlacement::Centered,
         }
     }
 
-    pub(crate) const fn with_bold_title(mut self) -> Self {
-        self.title_bold = true;
+    pub(crate) const fn with_top_left_placement(mut self, top_offset: u16) -> Self {
+        self.placement = ScrollableModalPlacement::TopLeft { top_offset };
         self
     }
 
@@ -72,19 +84,29 @@ impl ScrollableModal {
             .saturating_add(HORIZONTAL_CONTENT_PADDING.saturating_mul(2))
             .saturating_add(2)
             .min(area.width);
+        let top_offset = match self.placement {
+            ScrollableModalPlacement::Centered => 0,
+            ScrollableModalPlacement::TopLeft { top_offset } => top_offset.min(area.height),
+        };
+        let available_height = area.height.saturating_sub(top_offset);
         let height = self
             .content_height
             .saturating_add(footer_gap_height)
             .saturating_add(self.footer_height)
             .saturating_add(2)
-            .min(area.height);
-        let popup = Rect::new(
-            area.x.saturating_add(area.width.saturating_sub(width) / 2),
-            area.y
-                .saturating_add(area.height.saturating_sub(height) / 2),
-            width,
-            height,
-        );
+            .min(available_height);
+        let popup = match self.placement {
+            ScrollableModalPlacement::Centered => Rect::new(
+                area.x.saturating_add(area.width.saturating_sub(width) / 2),
+                area.y
+                    .saturating_add(area.height.saturating_sub(height) / 2),
+                width,
+                height,
+            ),
+            ScrollableModalPlacement::TopLeft { .. } => {
+                Rect::new(area.x, area.y.saturating_add(top_offset), width, height)
+            }
+        };
         let inner = popup.inner(ratatui::layout::Margin {
             vertical: 1,
             horizontal: 1,
@@ -157,23 +179,16 @@ impl ScrollableModal {
         let rows = layout.content.height.max(1) as usize;
         let offset = offset.min(text.lines.len().saturating_sub(rows));
         frame.render_widget(Clear, layout.area);
-        let title_style = if self.title_bold {
-            Style::default().add_modifier(Modifier::BOLD)
+        let block = if self.title.trim().is_empty() {
+            modal_block_focused(Line::default(), theme)
         } else {
-            Style::default()
+            modal_block_focused(modal_title(self.title, theme), theme)
         };
-        frame.render_widget(
-            panel_block_focused(
-                Line::from(Span::styled(self.title, title_style)),
-                theme,
-                true,
-            ),
-            layout.area,
-        );
+        frame.render_widget(block, layout.area);
 
         let mut paragraph = Paragraph::new(text)
             .alignment(Alignment::Left)
-            .style(Style::default().fg(theme.text).bg(theme.panel))
+            .style(Style::default().fg(theme.text).bg(theme.panel_alt))
             .scroll((offset as u16, 0));
         if wrap {
             paragraph = paragraph.wrap(ratatui::widgets::Wrap { trim: true });
@@ -206,8 +221,8 @@ impl ScrollableModal {
             .end_symbol(Some("▼"))
             .thumb_symbol("█")
             .track_symbol(Some("│"))
-            .style(Style::default().fg(theme.muted).bg(theme.panel))
-            .thumb_style(Style::default().fg(theme.accent).bg(theme.panel));
+            .style(Style::default().fg(theme.muted).bg(theme.panel_alt))
+            .thumb_style(Style::default().fg(theme.accent).bg(theme.panel_alt));
         frame.render_stateful_widget(scrollbar, area, &mut state);
     }
 }
@@ -415,5 +430,17 @@ mod tests {
         assert_eq!(layout.content.height, 5);
         assert_eq!(layout.footer.height, 1);
         assert_eq!(layout.footer.y, layout.content.bottom() + 1);
+        assert_eq!(layout.area.x, 28);
+        assert_eq!(layout.area.y, 10);
+    }
+
+    #[test]
+    fn top_left_placement_reserves_the_requested_top_offset() {
+        let modal = ScrollableModal::new("TEST", 20, 5, 1).with_top_left_placement(1);
+        let layout = modal.layout(Rect::new(4, 7, 80, 30));
+
+        assert_eq!(layout.area.x, 4);
+        assert_eq!(layout.area.y, 8);
+        assert_eq!(layout.area.height, 9);
     }
 }

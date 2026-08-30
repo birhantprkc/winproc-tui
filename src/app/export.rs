@@ -451,6 +451,7 @@ impl App {
         kind: RecordingErrorKind,
         return_to_path_dialog: bool,
     ) {
+        self.dismiss_main_menu();
         self.recording_session = None;
         self.show_quit_confirmation = false;
         self.show_recording_path_dialog = return_to_path_dialog;
@@ -707,6 +708,7 @@ impl App {
 
         self.show_recording_stop_confirmation = false;
         self.show_recording_tracking_fixed = false;
+        self.dismiss_main_menu();
         match self.finish_recording(RECORDING_DURATION_LIMIT_REASON) {
             Ok(Some(saved_path)) => {
                 self.ensure_visible_panel_focus();

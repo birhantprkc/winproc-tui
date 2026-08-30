@@ -554,6 +554,28 @@ fn start_empty_runtime_ignores_last_working_tracked_list() {
 }
 
 #[test]
+fn resume_last_runtime_restores_state_without_binding_a_profile() {
+    let mut config = AppConfig::default();
+    config.investigation = Some(config::InvestigationConfig {
+        startup: config::InvestigationStartup::ResumeLast,
+        active_profile: Some("API".to_string()),
+        last: config::InvestigationStateConfig {
+            tracked_names: vec!["api.exe".to_string()],
+            ..config::InvestigationStateConfig::default()
+        },
+    });
+    config.investigation_profiles = vec![config::SavedInvestigationProfile {
+        name: "API".to_string(),
+        ..config::SavedInvestigationProfile::default()
+    }];
+
+    let runtime = build_runtime_config(config).unwrap();
+
+    assert_eq!(runtime.process_filters, ["api.exe"]);
+    assert_eq!(runtime.active_investigation_profile, None);
+}
+
+#[test]
 fn legacy_tracking_list_name_collision_preserves_both_profiles() {
     let mut config = AppConfig::default();
     config.tracking.startup = config::TrackedListStartup::ChooseList;

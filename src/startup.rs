@@ -186,7 +186,9 @@ fn apply_startup_choice(config: &mut AppConfig, choice: StartupInvestigationChoi
         .as_mut()
         .expect("startup config must be prepared");
     match choice {
-        StartupInvestigationChoice::ResumeLast => {}
+        StartupInvestigationChoice::ResumeLast => {
+            investigation.active_profile = None;
+        }
         StartupInvestigationChoice::StartEmpty => {
             investigation.last = InvestigationStateConfig::default();
             investigation.active_profile = None;
@@ -518,17 +520,19 @@ mod tests {
     }
 
     #[test]
-    fn resume_last_keeps_the_complete_last_investigation() {
+    fn resume_last_keeps_state_without_binding_a_profile() {
         let mut config = AppConfig::default();
         crate::config::prepare_app_config(&mut config);
         let investigation = config.investigation.as_mut().unwrap();
         investigation.active_profile = Some("API".to_string());
         investigation.last.tracked_names = vec!["api.exe".to_string()];
         investigation.last.graph_time_span_seconds = 600;
-        let expected = investigation.clone();
+        let expected_state = investigation.last.clone();
 
         apply_startup_choice(&mut config, StartupInvestigationChoice::ResumeLast);
 
-        assert_eq!(config.investigation.as_ref().unwrap(), &expected);
+        let investigation = config.investigation.as_ref().unwrap();
+        assert_eq!(investigation.last, expected_state);
+        assert_eq!(investigation.active_profile, None);
     }
 }

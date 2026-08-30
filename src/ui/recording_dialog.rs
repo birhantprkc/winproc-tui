@@ -12,7 +12,7 @@ use crate::{
         Theme,
         footer::{shortcut_spans, warning_shortcut_spans},
         widgets::{
-            block::{panel_block_focused, panel_title},
+            block::{modal_block_focused, modal_title, semantic_modal_title},
             confirm_dialog,
         },
     },
@@ -42,7 +42,7 @@ pub(crate) fn draw_recording_path_dialog(
 ) {
     let popup =
         confirm_dialog::centered_dialog_rect(area, RECORDING_PATH_WIDTH, RECORDING_PATH_HEIGHT);
-    let block = recording_block(panel_title("RECORDING"), theme);
+    let block = recording_block("RECORDING", theme);
     let content = block.inner(popup);
     let input_area = Rect::new(
         content.x,
@@ -74,7 +74,7 @@ pub(crate) fn draw_recording_path_dialog(
             .bg(theme.focus_surface)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme.text).bg(theme.panel_alt)
+        Style::default().fg(theme.text).bg(theme.panel)
     };
     frame.render_widget(Paragraph::new(input).style(input_style), input_area);
     frame.render_widget(
@@ -217,7 +217,7 @@ pub(crate) fn draw_recording_tracking_fixed(
     frame.render_widget(Clear, popup);
     frame.render_widget(
         Paragraph::new(lines)
-            .block(recording_block(panel_title("RECORDING"), theme))
+            .block(recording_block("RECORDING", theme))
             .alignment(Alignment::Center),
         popup,
     );
@@ -416,18 +416,13 @@ fn recording_overwrite_dialog_area(area: Rect) -> Rect {
     )
 }
 
-fn recording_block<'a>(title: impl Into<Line<'a>>, theme: Theme) -> ratatui::widgets::Block<'a> {
-    panel_block_focused(title, theme, true)
+fn recording_block(title: &'static str, theme: Theme) -> ratatui::widgets::Block<'static> {
+    modal_block_focused(modal_title(title, theme), theme)
 }
 
 fn recording_error_block(theme: Theme) -> Block<'static> {
     Block::default()
-        .title(Span::styled(
-            "RECORDING ERROR",
-            Style::default()
-                .fg(theme.danger)
-                .add_modifier(Modifier::BOLD),
-        ))
+        .title(semantic_modal_title("RECORDING ERROR", theme.danger, theme))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(
@@ -435,7 +430,7 @@ fn recording_error_block(theme: Theme) -> Block<'static> {
                 .fg(theme.danger)
                 .add_modifier(Modifier::BOLD),
         )
-        .style(Style::default().bg(theme.panel))
+        .style(Style::default().bg(theme.panel_alt))
 }
 
 fn shortcut_line(items: &[(&str, &str)], theme: Theme) -> Line<'static> {

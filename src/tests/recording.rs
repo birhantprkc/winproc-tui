@@ -17,7 +17,7 @@ use crossterm::event::{
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::layout::{Position, Rect};
-use ratatui::style::Modifier;
+use ratatui::style::{Color, Modifier};
 
 #[test]
 fn ctrl_r_requires_tracked_processes_before_opening_recording_dialog() {
@@ -76,10 +76,12 @@ fn recording_automatically_stops_at_24_hour_limit() {
     app.show_recording_path_dialog = true;
     app.confirm_recording_path().unwrap();
     app.request_recording_stop();
+    app.open_main_menu();
 
     assert!(app.enforce_recording_duration_limit_for_test(MAX_RECORDING_DURATION));
     assert_eq!(app.activity(), AppActivity::Live);
     assert!(!app.show_recording_stop_confirmation);
+    assert!(!app.is_main_menu_open());
     assert_eq!(
         app.status,
         format!(
@@ -510,7 +512,12 @@ fn recording_no_tracked_warning_uses_warning_title_and_border() {
     app.show_recording_no_tracked_warning = true;
 
     let buffer = render_app_to_buffer(&app, 100, 45);
-    assert_title_style(&buffer, "WARNING", app.theme().warning);
+    assert_title_style(
+        &buffer,
+        "WARNING",
+        app.theme().warning,
+        ui::theme::contrasting_foreground(app.theme().warning, app.theme()),
+    );
 }
 
 #[test]
@@ -717,6 +724,7 @@ fn periodic_recording_write_failure_stops_recording_and_shows_error() {
     app.recording_path_cursor = app.recording_path_draft.len();
     app.confirm_recording_path().unwrap();
     app.replace_recording_writer_for_test(Box::new(AlwaysFailWriter));
+    app.open_main_menu();
     let snapshot = app.snapshot.clone();
     result_tx
         .send(CollectSnapshotResult {
@@ -729,6 +737,7 @@ fn periodic_recording_write_failure_stops_recording_and_shows_error() {
 
     assert_eq!(app.activity(), AppActivity::Live);
     assert!(app.recording_session.is_none());
+    assert!(!app.is_main_menu_open());
     let error = app
         .recording_error
         .as_ref()
@@ -852,6 +861,8 @@ fn live_header_omits_freshness_when_current() {
     let rendered = render_app_to_text(&app, 120, 45);
 
     assert!(rendered.contains("LIVE"), "{rendered}");
+    assert!(rendered.contains("[MENU]"), "{rendered}");
+    assert!(rendered.contains("PF: none"), "{rendered}");
     assert!(!rendered.contains("fresh"), "{rendered}");
     assert!(!rendered.contains("STALE"), "{rendered}");
 }
@@ -864,6 +875,7 @@ fn live_header_hides_product_and_version_when_the_row_is_too_narrow() {
     let rendered = render_app_to_text(&app, 24, 20);
 
     assert!(rendered.contains("LIVE"), "{rendered}");
+    assert!(rendered.contains("[MENU]"), "{rendered}");
     assert!(!rendered.contains(&product_and_version), "{rendered}");
 }
 
@@ -893,16 +905,30 @@ fn recording_header_shows_rec_spinner_and_path() {
         .unwrap();
 
     let rendered = render_app_to_text(&app, 120, 45);
+    let header = rendered.lines().next().expect("header row");
+    let file_name = path.file_name().unwrap().to_string_lossy();
     assert!(rendered.contains("REC"), "{rendered}");
     assert!(!rendered.contains("fresh"), "{rendered}");
     assert!(!rendered.contains("STALE"), "{rendered}");
-    assert!(rendered.contains("winproc-tui-test-header"), "{rendered}");
+    assert!(header.contains(file_name.as_ref()), "{header}");
+    assert!(!header.contains(&path.display().to_string()), "{header}");
+    assert!(header.contains("PF: none"), "{header}");
+    assert!(rendered.contains("[MENU]"), "{rendered}");
+    let buffer = render_app_to_buffer(&app, 120, 45);
+    let (profile_x, profile_y) =
+        find_text_position(&buffer, "PF: none").expect("profile badge should render");
+    assert_eq!(buffer[(profile_x, profile_y)].fg, Color::Black);
+    assert_eq!(buffer[(profile_x, profile_y)].bg, app.theme().muted);
 
     app.toggle_display_pause();
     let paused = render_app_to_text(&app, 120, 45);
+    let paused_header = paused.lines().next().expect("paused header row");
     assert!(paused.contains("REC"), "{paused}");
     assert!(paused.contains("DISPLAY PAUSED"), "{paused}");
-    assert!(paused.contains("winproc-tui-test-header"), "{paused}");
+    assert!(
+        paused_header.contains(file_name.as_ref()),
+        "{paused_header}"
+    );
 
     app.stop_recording().unwrap();
     let _ = std::fs::remove_file(path);

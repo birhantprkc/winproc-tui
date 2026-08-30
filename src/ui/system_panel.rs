@@ -19,7 +19,7 @@ use crate::{
         format::{format_integer, format_mb, ratio_optional},
         graph_slot::graph_value_style,
         layout::system_panel_area_for_screen,
-        widgets::block::{panel_block_focused, panel_title},
+        widgets::block::{modal_block_focused, modal_title, panel_block_focused},
     },
 };
 
@@ -94,7 +94,7 @@ pub(crate) fn draw_system_info_dialog(
 ) {
     let popup = system_info_dialog_area(area);
     frame.render_widget(Clear, popup);
-    let block = panel_block_focused(panel_title("SYSTEM INFO"), theme, true);
+    let block = modal_block_focused(modal_title("SYSTEM INFO", theme), theme);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
@@ -102,7 +102,7 @@ pub(crate) fn draw_system_info_dialog(
     let content = Rect::new(inner.x, inner.y, inner.width, content_height);
     let lines = system_info_dialog_lines(app, theme);
     frame.render_widget(
-        Paragraph::new(Text::from(lines)).style(Style::default().bg(theme.panel)),
+        Paragraph::new(Text::from(lines)).style(Style::default().bg(theme.panel_alt)),
         content,
     );
 

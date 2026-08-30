@@ -43,7 +43,15 @@ const GLOBAL_ROWS: &[HelpItem] = &[
     },
     HelpItem {
         key: "Esc",
-        label: "Quit / Live in LOG",
+        label: "Open main menu",
+    },
+    HelpItem {
+        key: "↑/↓, ←/→, Enter",
+        label: "Navigate main menu hierarchy",
+    },
+    HelpItem {
+        key: "Space",
+        label: "Toggle selected main menu checkbox",
     },
     HelpItem {
         key: "F1/?",
@@ -176,10 +184,6 @@ const PROCESSES_ROWS: &[HelpItem] = &[
 
 const RAM_VRAM_ROWS: &[HelpItem] = &[
     HelpItem {
-        key: "m/g",
-        label: "Show MEM / GPU",
-    },
-    HelpItem {
         key: "←/→",
         label: "Switch MEM column / GPU adapter",
     },
@@ -242,7 +246,7 @@ const TRACKING_ROWS: &[HelpItem] = &[
     },
     HelpItem {
         key: "Ctrl+T",
-        label: "Open Investigation Profiles",
+        label: "Open an Investigation Profile",
     },
 ];
 
@@ -360,6 +364,10 @@ const AB_ROWS: &[HelpItem] = &[
 ];
 
 const MOUSE_ROWS: &[HelpItem] = &[
+    HelpItem {
+        key: "Click [MENU]",
+        label: "Open main menu",
+    },
     HelpItem {
         key: "Click panel",
         label: "Focus clicked panel",
@@ -712,5 +720,4 @@ fn help_modal() -> ScrollableModal {
         help_content_line_count(),
         FOOTER_HEIGHT,
     )
-    .with_bold_title()
 }

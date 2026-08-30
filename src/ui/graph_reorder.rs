@@ -113,7 +113,6 @@ fn graph_reorder_modal(app: &App) -> ScrollableModal {
         app.graph_reorder_total_rows().min(usize::from(u16::MAX)) as u16,
         FOOTER_HEIGHT,
     )
-    .with_bold_title()
 }
 
 fn graph_reorder_content_width(app: &App) -> u16 {

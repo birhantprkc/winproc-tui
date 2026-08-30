@@ -11,6 +11,7 @@ pub(crate) mod help;
 pub(crate) mod investigation_profiles;
 pub(crate) mod layout;
 pub(crate) mod log_list;
+pub(crate) mod main_menu;
 pub(crate) mod open_files;
 pub(crate) mod process_environment;
 pub(crate) mod process_info_dialog;
@@ -29,7 +30,7 @@ use ratatui::{
     widgets::{Block, Clear},
 };
 
-use crate::App;
+use crate::{App, app::InvestigationProfilesView};
 
 #[cfg(test)]
 pub(crate) use column_picker::column_picker_area;
@@ -53,6 +54,7 @@ pub(crate) use graph_reorder::{
     graph_reorder_scrollbar_area,
 };
 use header::draw_header;
+pub(crate) use header::header_menu_area_for_screen;
 use help::draw_help;
 #[cfg(test)]
 pub(crate) use help::help_area;
@@ -62,7 +64,7 @@ pub(crate) use help::{
 use investigation_profiles::draw_investigation_profiles;
 pub(crate) use investigation_profiles::{
     investigation_profile_index_at, investigation_profile_startup_at_for_screen,
-    investigation_profile_startup_link_at_for_screen, investigation_profiles_page_size_for_screen,
+    investigation_profiles_page_size_for_screen,
 };
 #[cfg(test)]
 pub(crate) use layout::main_panel_areas;
@@ -76,6 +78,10 @@ use log_list::{draw_log_dir_dialog, draw_log_list};
 pub(crate) use log_list::{
     log_list_index_at, log_list_page_size_for_screen, log_list_total_rows_for_count,
 };
+use main_menu::draw_main_menu;
+pub(crate) use main_menu::main_menu_index_at;
+#[cfg(test)]
+pub(crate) use main_menu::{main_menu_area, main_menu_item_area};
 pub(crate) use open_files::open_files_total_rows;
 use process_info_dialog::draw_process_info_dialog;
 pub(crate) use process_info_dialog::{
@@ -115,6 +121,7 @@ pub(crate) use theme::{THEMES, Theme, theme_index_by_name};
 use tracked_remove_confirm::draw_tracked_remove_confirm;
 #[cfg(test)]
 pub(crate) use tracked_remove_confirm::tracked_remove_dialog_area;
+use widgets::modal_scrim::{ModalScrim, ModalScrimStrength};
 
 pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
     let area = frame.area();
@@ -132,6 +139,16 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
     draw_body(frame, panels, app, theme);
     draw_footer(frame, layout[2], app, theme);
 
+    if let Some(strength) = modal_scrim_strength(app) {
+        frame.render_widget(ModalScrim::new(theme, strength), area);
+        if strength == ModalScrimStrength::Menu {
+            draw_header(frame, layout[0], app, theme);
+        }
+    }
+
+    if app.is_main_menu_open() {
+        draw_main_menu(frame, area, app, theme);
+    }
     if app.show_help {
         draw_help(frame, area, app, theme);
     }
@@ -142,6 +159,9 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         draw_log_list(frame, area, app, theme);
     }
     if app.show_log_dir_dialog {
+        if app.show_log_list {
+            frame.render_widget(ModalScrim::new(theme, ModalScrimStrength::Dialog), area);
+        }
         draw_log_dir_dialog(frame, area, app, theme);
     }
     if app.show_process_info_dialog {
@@ -163,6 +183,9 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         draw_recording_path_dialog(frame, area, app, theme);
     }
     if app.show_recording_overwrite_confirmation {
+        if app.show_recording_path_dialog {
+            frame.render_widget(ModalScrim::new(theme, ModalScrimStrength::Dialog), area);
+        }
         draw_recording_overwrite_confirm(frame, area, app, theme);
     }
     if app.show_recording_tracking_fixed {
@@ -193,7 +216,40 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         draw_quit_confirm(frame, area, app, theme);
     }
     if app.recording_error.is_some() {
+        if app.show_recording_path_dialog {
+            frame.render_widget(ModalScrim::new(theme, ModalScrimStrength::Dialog), area);
+        }
         draw_recording_error(frame, area, app, theme);
+    }
+}
+
+fn modal_scrim_strength(app: &App) -> Option<ModalScrimStrength> {
+    if !app.has_modal_focus() {
+        return None;
+    }
+    if app.recording_error.is_some()
+        || app.show_recording_no_tracked_warning
+        || app.show_recording_overwrite_confirmation
+        || app.show_recording_stop_confirmation
+        || app.show_tracked_remove_confirmation
+        || app.show_process_kill_confirmation
+        || app.show_display_area_warning
+        || app.show_metric_column_warning
+        || app.show_no_graph_metrics_warning
+        || app.show_quit_confirmation
+        || matches!(
+            app.investigation_profiles_view(),
+            Some(
+                InvestigationProfilesView::ConfirmDelete { .. }
+                    | InvestigationProfilesView::ConfirmLoad { .. }
+            )
+        )
+    {
+        Some(ModalScrimStrength::Priority)
+    } else if app.is_main_menu_open() {
+        Some(ModalScrimStrength::Menu)
+    } else {
+        Some(ModalScrimStrength::Dialog)
     }
 }
 

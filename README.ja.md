@@ -72,7 +72,7 @@ Graph または Samples にフォーカスを移し、`Left` / `Right` でサン
 ### プロセスを追跡・記録する
 
 1. Process または PID セルを選び、`Space`、ダブルクリック、または `t` でプロセス名を作業中の Tracking List へ追加します。
-2. `Ctrl+T` から、Tracking List、プロセステーブル設定、Graph ワークスペース、記録間隔をまとめた Investigation Profile を保存・読み込みできます。
+2. `Ctrl+T` から保存済み Investigation Profile を開けます。Tracking List、プロセステーブル設定、Graph ワークスペース、記録間隔をまとめて保存するには、`MENU > Profile > Save` または `Save As` を使います。
 3. `Ctrl+R` を押し、保存先と `1s` / `2s` / `5s` / `10s` の記録間隔を選んで開始します。
 4. もう一度 `Ctrl+R` を押し、`y` で記録を終了します。`Enter`、`Esc`、`n` では記録を継続します。
 5. `Ctrl+L` から保存済みログを開き、あとから調査します。

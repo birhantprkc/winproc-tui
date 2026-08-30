@@ -8,7 +8,7 @@ use ratatui::layout::{Margin, Rect};
 
 use crate::{
     app::{
-        App, AppActivity, DetailsMetric, FocusedPanel, GraphHoverTarget, GraphId, GraphPanDrag,
+        App, DetailsMetric, FocusedPanel, GraphHoverTarget, GraphId, GraphPanDrag,
         GraphPanDragButton, GraphSlot, InvestigationProfilesView, ProcessInfoFocus,
         ProcessPanelHeight, ProcessPanelResizeDrag,
     },
@@ -19,15 +19,14 @@ use crate::{
         cpu_per_core_button_area,
         details_panel::graph_y_axis_label_width,
         gpu_panel_area_for_screen, graph_reorder_index_at, graph_reorder_scrollbar_area,
-        help_scrollbar_area, investigation_profile_index_at,
+        header_menu_area_for_screen, help_scrollbar_area, investigation_profile_index_at,
         investigation_profile_startup_at_for_screen,
-        investigation_profile_startup_link_at_for_screen,
         layout::{
             DetailsSamplesSummaryVisibility, GraphWorkspaceLayout, ProcessTableLayout,
             details_graph_chart_area, details_samples_summary_visibility,
             graph_shared_control_areas, graph_workspace_layout,
         },
-        log_list_index_at, main_panel_areas_for_app, memory_metric_at_position,
+        log_list_index_at, main_menu_index_at, main_panel_areas_for_app, memory_metric_at_position,
         process_info_content_area_for_screen, process_info_tab_at, process_metric_column_index_at,
         process_tracked_only_control_area, process_tree_disclosure_hit_test,
         process_view_mode_control_area, ram_vram_panel_area_for_screen,
@@ -117,7 +116,6 @@ impl App {
                     KeyCode::Esc => self.close_investigation_profiles(),
                     KeyCode::Enter => self.load_selected_investigation_profile(),
                     KeyCode::Delete => self.request_delete_selected_investigation_profile(),
-                    KeyCode::F(2) => self.begin_rename_investigation_profile(),
                     KeyCode::Up => self.move_investigation_profile_selection_up(1),
                     KeyCode::Down => self.move_investigation_profile_selection_down(1),
                     KeyCode::PageUp => self.move_investigation_profile_selection_up(
@@ -134,23 +132,6 @@ impl App {
                     ),
                     KeyCode::Home => self.move_investigation_profile_selection_home(),
                     KeyCode::End => self.move_investigation_profile_selection_end(),
-                    KeyCode::Char(ch)
-                        if ch.eq_ignore_ascii_case(&'u') && key.modifiers.is_empty() =>
-                    {
-                        self.open_investigation_startup();
-                    }
-                    KeyCode::Char(ch)
-                        if ch.eq_ignore_ascii_case(&'s')
-                            && !key.modifiers.contains(KeyModifiers::CONTROL)
-                            && !key.modifiers.contains(KeyModifiers::ALT)
-                            && (ch.is_ascii_uppercase()
-                                || key.modifiers.contains(KeyModifiers::SHIFT)) =>
-                    {
-                        self.begin_save_investigation_profile_as();
-                    }
-                    KeyCode::Char('s') if key.modifiers.is_empty() => {
-                        self.save_active_investigation_profile();
-                    }
                     _ => {}
                 },
                 InvestigationProfilesView::Startup { .. } => match key.code {
@@ -791,6 +772,26 @@ impl App {
             return Ok(());
         }
 
+        if self.is_main_menu_open() {
+            match key.code {
+                KeyCode::Up => self.move_main_menu_selection_up(),
+                KeyCode::Down => self.move_main_menu_selection_down(),
+                KeyCode::Home => self.move_main_menu_selection_home(),
+                KeyCode::End => self.move_main_menu_selection_end(),
+                KeyCode::Left => self.collapse_main_menu_selection(),
+                KeyCode::Right => self.expand_main_menu_selection(),
+                KeyCode::Char(' ') => self.toggle_main_menu_checkbox_selection(),
+                KeyCode::Enter => self.activate_main_menu_selection()?,
+                KeyCode::Esc => self.close_main_menu(),
+                KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'q') => {
+                    self.move_main_menu_selection_end();
+                    self.activate_main_menu_selection()?;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         if is_ctrl_t(key) {
             self.open_investigation_profiles();
             return Ok(());
@@ -1129,10 +1130,10 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Esc if self.activity() == AppActivity::LogView => {
-                self.exit_log_view();
+            KeyCode::Esc => {
+                self.open_main_menu();
             }
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
                 self.request_quit_confirmation();
             }
             KeyCode::Tab => {
@@ -1414,6 +1415,7 @@ impl App {
             self.process_panel_resize_drag = None;
             self.process_view_mode_hovered = false;
             self.process_disclosure_hovered = None;
+            self.header_menu_hovered = false;
         } else {
             self.graph_hovered_target =
                 graph_hover_target_at(self, screen_area, mouse.column, mouse.row);
@@ -1433,6 +1435,8 @@ impl App {
                         .and_then(|index| self.visible_process_identity_at(index))
                 })
                 .flatten();
+            self.header_menu_hovered = header_menu_area_for_screen(screen_area, self)
+                .is_some_and(|area| contains_point(area, mouse.column, mouse.row));
             if mouse.kind == MouseEventKind::Moved {
                 return;
             }
@@ -1467,6 +1471,26 @@ impl App {
         }
 
         if self.show_recording_tracking_fixed {
+            return;
+        }
+
+        if self.is_main_menu_open() {
+            let hovered = main_menu_index_at(screen_area, self, mouse.column, mouse.row);
+            self.set_main_menu_hovered(hovered);
+            if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                && let Some(index) = hovered
+                && let Err(error) = self.activate_main_menu_at(index)
+            {
+                self.status = format!("Menu action failed: {error}");
+            }
+            return;
+        }
+
+        if !has_modal_focus
+            && self.header_menu_hovered
+            && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+        {
+            self.open_main_menu();
             return;
         }
 
@@ -1516,15 +1540,6 @@ impl App {
                         self.investigation_profiles_entry_count(),
                     ) {
                         self.select_investigation_profile_index(index);
-                        return;
-                    }
-                    if investigation_profile_startup_link_at_for_screen(
-                        screen_area,
-                        mouse.column,
-                        mouse.row,
-                        self.investigation_profiles_entry_count(),
-                    ) {
-                        self.open_investigation_startup();
                     }
                 }
                 MouseEventKind::Down(MouseButton::Left)

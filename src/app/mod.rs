@@ -213,6 +213,8 @@ pub(crate) fn handle_mouse_event(app: &mut App, mouse: MouseEvent, screen_area: 
         app.cpu_per_core_hovered,
         app.process_view_mode_hovered,
         app.process_disclosure_hovered.clone(),
+        app.main_menu_hovered,
+        app.header_menu_hovered,
     );
     app.on_mouse(mouse, screen_area);
     mouse.kind != MouseEventKind::Moved
@@ -222,6 +224,8 @@ pub(crate) fn handle_mouse_event(app: &mut App, mouse: MouseEvent, screen_area: 
                 app.cpu_per_core_hovered,
                 app.process_view_mode_hovered,
                 app.process_disclosure_hovered.clone(),
+                app.main_menu_hovered,
+                app.header_menu_hovered,
             )
 }
 

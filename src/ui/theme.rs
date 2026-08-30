@@ -133,6 +133,38 @@ pub(crate) fn theme_index_by_name(name: &str) -> usize {
         .unwrap_or(0)
 }
 
+pub(crate) fn contrasting_foreground(background: Color, theme: Theme) -> Color {
+    let light_contrast = contrast_ratio(background, theme.text);
+    let dark_contrast = contrast_ratio(background, theme.background);
+    if dark_contrast >= light_contrast {
+        theme.background
+    } else {
+        theme.text
+    }
+}
+
+fn contrast_ratio(first: Color, second: Color) -> f64 {
+    let lighter = relative_luminance(first).max(relative_luminance(second));
+    let darker = relative_luminance(first).min(relative_luminance(second));
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+fn relative_luminance(color: Color) -> f64 {
+    let Color::Rgb(red, green, blue) = color else {
+        return 0.0;
+    };
+    0.2126 * linear_channel(red) + 0.7152 * linear_channel(green) + 0.0722 * linear_channel(blue)
+}
+
+fn linear_channel(channel: u8) -> f64 {
+    let value = f64::from(channel) / 255.0;
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +219,20 @@ mod tests {
         assert_eq!(theme_index_by_name("Neutral Light"), 0);
         assert_eq!(theme_index_by_name("Ocean Pop"), 0);
         assert_eq!(theme_index_by_name("unknown"), 0);
+    }
+
+    #[test]
+    fn semantic_title_fills_choose_the_higher_contrast_foreground() {
+        for theme in THEMES {
+            for background in [theme.focus_border, theme.warning, theme.danger] {
+                let foreground = contrasting_foreground(background, theme);
+                assert_eq!(foreground, theme.background);
+                assert!(
+                    contrast_ratio(background, foreground) >= 4.5,
+                    "theme={}, background={background:?}",
+                    theme.name
+                );
+            }
+        }
     }
 }

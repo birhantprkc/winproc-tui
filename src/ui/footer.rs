@@ -28,7 +28,6 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
 
     let mut items = match app.focused_panel {
         FocusedPanel::System => vec![
-            ("m/g", "MEM/GPU"),
             ("←/→", "Column/Adapter"),
             ("Space", "Graph"),
             ("Ctrl+C", "Copy"),
@@ -125,11 +124,10 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
     }
     if app.activity() == AppActivity::LogView {
         items.retain(|(key, _)| *key != "v" && *key != "e");
-        items.push(("Esc", "Live"));
     } else {
         items.push(("Ctrl+P", "Pause"));
-        items.push(("Esc", "Quit"));
     }
+    items.insert(0, ("ESC", "Menu"));
     items.push(("Ctrl+T", "Profiles"));
     items.push(("F12", "Color"));
     items.push(("F1/?", "Help"));

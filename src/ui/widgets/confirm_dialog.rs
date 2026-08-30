@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::ui::Theme;
+use crate::ui::widgets::block::semantic_modal_title;
 
 pub(crate) fn centered_dialog_rect(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);
@@ -56,12 +57,7 @@ pub(crate) fn warning_message_dialog<'a>(
 
 pub(crate) fn warning_block(title: &'static str, theme: Theme) -> Block<'static> {
     Block::default()
-        .title(Span::styled(
-            title,
-            Style::default()
-                .fg(theme.warning)
-                .add_modifier(Modifier::BOLD),
-        ))
+        .title(semantic_modal_title(title, theme.warning, theme))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(
@@ -69,5 +65,5 @@ pub(crate) fn warning_block(title: &'static str, theme: Theme) -> Block<'static>
                 .fg(theme.warning)
                 .add_modifier(Modifier::BOLD),
         )
-        .style(Style::default().bg(theme.panel))
+        .style(Style::default().bg(theme.panel_alt))
 }

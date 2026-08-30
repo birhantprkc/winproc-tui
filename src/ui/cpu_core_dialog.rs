@@ -121,7 +121,6 @@ fn cpu_core_dialog_modal(app: &App) -> ScrollableModal {
         content_height,
         FOOTER_HEIGHT,
     )
-    .with_bold_title()
 }
 
 fn footer_width() -> usize {

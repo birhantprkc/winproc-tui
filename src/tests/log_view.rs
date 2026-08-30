@@ -9,6 +9,7 @@ use crate::ui;
 use chrono::{Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 
 #[test]
 fn ctrl_l_opens_log_list() {
@@ -158,10 +159,10 @@ fn logs_dialog_matches_recording_dialog_width() {
         find_text_position(&recording, "RECORDING").expect("Recording title should render");
 
     assert_eq!(logs_x, recording_x);
-    assert_eq!(logs[(logs_x - 1, logs_y)].symbol(), "┏");
-    assert_eq!(recording[(recording_x - 1, recording_y)].symbol(), "┏");
-    assert_eq!(logs[(logs_x + 76, logs_y)].symbol(), "┓");
-    assert_eq!(recording[(recording_x + 76, recording_y)].symbol(), "┓");
+    assert_eq!(logs[(logs_x - 2, logs_y)].symbol(), "┏");
+    assert_eq!(recording[(recording_x - 2, recording_y)].symbol(), "┏");
+    assert_eq!(logs[(logs_x + 75, logs_y)].symbol(), "┓");
+    assert_eq!(recording[(recording_x + 75, recording_y)].symbol(), "┓");
 }
 
 #[test]
@@ -491,6 +492,12 @@ fn log_view_header_shows_log_badge_and_path_without_freshness() {
     let (_, log_y) = find_text_position(&buffer, "LOG").expect("log badge should be rendered");
 
     assert!(rendered.contains("LOG"), "{rendered}");
+    assert!(rendered.contains("[MENU]"), "{rendered}");
+    assert!(rendered.contains("PF: --"), "{rendered}");
+    let (profile_x, profile_y) =
+        find_text_position(&buffer, "PF: --").expect("profile badge should render");
+    assert_eq!(buffer[(profile_x, profile_y)].fg, Color::Black);
+    assert_eq!(buffer[(profile_x, profile_y)].bg, app.theme().muted);
     assert_eq!(log_y, 0);
     assert!(!rendered.contains("fresh"), "{rendered}");
     assert!(!rendered.contains("STALE"), "{rendered}");
@@ -502,16 +509,19 @@ fn log_view_header_shows_log_badge_and_path_without_freshness() {
 }
 
 #[test]
-fn log_view_header_keeps_the_path_and_hides_product_at_narrow_width() {
+fn log_view_header_keeps_the_filename_suffix_and_hides_product_at_narrow_width() {
     let mut app = make_test_app(1, 10);
     let path = "C:/logs/winproc-tui-demo.log";
     let product_and_version = format!("winproc-tui {}", env!("CARGO_PKG_VERSION"));
     app.log_view_path = Some(std::path::PathBuf::from(path));
 
     let rendered = render_app_to_text(&app, 40, 20);
+    let header = rendered.lines().next().expect("header row");
 
     assert!(rendered.contains("LOG"), "{rendered}");
-    assert!(rendered.contains(path), "{rendered}");
+    assert!(rendered.contains("[MENU]"), "{rendered}");
+    assert!(!rendered.contains(path), "{rendered}");
+    assert!(header.contains(".log"), "{header}");
     assert!(!rendered.contains(&product_and_version), "{rendered}");
 }
 
@@ -522,7 +532,7 @@ fn display_pause_is_unavailable_in_log_view() {
 
     let rendered = render_app_to_text(&app, 240, 30);
     assert!(!rendered.contains("Ctrl+P Pause"), "{rendered}");
-    assert!(rendered.contains("Esc Live"), "{rendered}");
+    assert!(rendered.contains("ESC Menu"), "{rendered}");
 
     app.toggle_display_pause();
 
@@ -531,17 +541,17 @@ fn display_pause_is_unavailable_in_log_view() {
 }
 
 #[test]
-fn log_view_esc_returns_to_live_without_quit_confirmation() {
+fn log_view_esc_opens_menu_without_returning_to_live_or_requesting_quit() {
     let mut app = make_test_app(1, 10);
     app.log_view_path = Some(std::path::PathBuf::from("C:/logs/winproc-tui-demo.log"));
 
     app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
         .unwrap();
 
-    assert_eq!(app.activity(), AppActivity::Live);
-    assert!(app.log_view_path.is_none());
+    assert_eq!(app.activity(), AppActivity::LogView);
+    assert!(app.log_view_path.is_some());
+    assert!(app.is_main_menu_open());
     assert!(!app.show_quit_confirmation);
-    assert_eq!(app.status, "Log view closed");
 }
 
 #[test]
