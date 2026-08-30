@@ -29,10 +29,6 @@ const NAME_DIALOG_WIDTH: u16 = 60;
 const NAME_DIALOG_HEIGHT: u16 = 8;
 const CONFIRM_DIALOG_WIDTH: u16 = 68;
 const CONFIRM_DIALOG_HEIGHT: u16 = 8;
-const REPORT_LIST_ROW: u16 = 4;
-const REPORT_LIST_HEIGHT: u16 = 15;
-const REPORT_DIALOG_HEIGHT: u16 = 25;
-const REPORT_SHORTCUT_ROW: u16 = 22;
 const STARTUP_DIALOG_WIDTH: u16 = 72;
 const STARTUP_DIALOG_HEIGHT: u16 = 12;
 const STARTUP_OPTION_ROW: u16 = 3;
@@ -50,7 +46,6 @@ pub(crate) fn draw_investigation_profiles(
     match view {
         InvestigationProfilesView::Browse => draw_browse(frame, area, app, theme),
         InvestigationProfilesView::Startup { .. } => draw_startup(frame, area, app, theme),
-        InvestigationProfilesView::LoadReport { .. } => draw_load_report(frame, area, app, theme),
         InvestigationProfilesView::NameInput { .. } => draw_name_input(frame, area, app, theme),
         InvestigationProfilesView::ConfirmDelete { .. }
         | InvestigationProfilesView::ConfirmLoad { .. } => {
@@ -66,16 +61,19 @@ pub(crate) fn draw_investigation_profiles(
                 InvestigationProfilesView::ConfirmLoad { .. } => {
                     draw_load_confirm(frame, area, app, theme)
                 }
-                InvestigationProfilesView::Browse
-                | InvestigationProfilesView::Startup { .. }
-                | InvestigationProfilesView::LoadReport { .. } => {}
+                InvestigationProfilesView::Browse | InvestigationProfilesView::Startup { .. } => {}
             }
         }
     }
 }
 
 fn draw_browse(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: Theme) {
-    let layout = browse_layout(area, app.investigation_profiles_entry_count());
+    let count = app.investigation_profiles_entry_count();
+    let selected_tracked_count = app
+        .selected_investigation_profile()
+        .map(|profile| profile.tracked_names.len())
+        .unwrap_or(0);
+    let layout = browse_layout(area, count, selected_tracked_count);
     let popup = layout.popup;
     let block = modal_block_focused(modal_title("OPEN INVESTIGATION PROFILE", theme), theme);
     let content = layout.content;
@@ -90,7 +88,6 @@ fn draw_browse(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: The
     draw_section_label(frame, content, LIST_LABEL_ROW, "SAVED PROFILES", theme);
 
     let list_area = layout.list;
-    let count = app.investigation_profiles_entry_count();
     if count == 0 {
         frame.render_widget(
             Paragraph::new("(No saved profiles)").style(Style::default().fg(theme.muted)),
@@ -125,7 +122,6 @@ fn draw_browse(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: The
                         if is_selected { ">" } else { " " },
                         &profile.name,
                         profile.tracked_names.len(),
-                        profile.graphs.len(),
                         active,
                         list_area.width as usize,
                     ),
@@ -144,56 +140,23 @@ fn draw_browse(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: The
             &format!("SELECTED PROFILE · {}", profile.name),
             theme,
         );
-        let ma_count = profile
-            .graphs
-            .iter()
-            .filter(|graph| {
-                matches!(
-                    graph.display_mode.trim().to_ascii_lowercase().as_str(),
-                    "ma" | "ma5" | "moving_average_5"
-                )
-            })
-            .count();
-        let raw_count = profile.graphs.len().saturating_sub(ma_count);
-        let summary = [
-            format!(
-                "Tracking    {} name{}    Tracked-only {}    View {}",
-                profile.tracked_names.len(),
-                if profile.tracked_names.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                },
-                on_off(profile.tracked_only),
-                profile.process_view
-            ),
-            format!(
-                "Processes   {} columns    Sort {} {}",
-                profile.process_columns.len(),
-                profile.sort_by,
-                profile.sort_order
-            ),
-            format!(
-                "Graphs      {} ({} Raw / {} MA5)    Layout {}    Span {}s",
-                profile.graphs.len(),
-                raw_count,
-                ma_count,
-                graph_layout_label(profile.graph_columns),
-                profile.graph_time_span_seconds
-            ),
-            format!(
-                "Inspector   Samples {}    Delta {}    Y min {}",
-                on_off(profile.samples),
-                on_off(profile.delta),
-                if profile.y_axis_zero_min { "0" } else { "data" }
-            ),
-            format!("Recording   {}s", profile.recording_interval_seconds),
-        ];
-        for (offset, text) in summary.into_iter().enumerate() {
+        if profile.tracked_names.is_empty() {
             frame.render_widget(
-                Paragraph::new(text).style(Style::default().fg(theme.text)),
-                row(content, layout.summary_row + offset as u16),
+                Paragraph::new("(No tracked processes)").style(Style::default().fg(theme.muted)),
+                row(content, layout.summary_row),
             );
+        } else {
+            for (offset, name) in profile
+                .tracked_names
+                .iter()
+                .take(layout.summary_height as usize)
+                .enumerate()
+            {
+                frame.render_widget(
+                    Paragraph::new(name.as_str()).style(Style::default().fg(theme.text)),
+                    row(content, layout.summary_row + offset as u16),
+                );
+            }
         }
     } else {
         draw_section_label(
@@ -401,72 +364,17 @@ fn draw_confirm(
     );
 }
 
-fn draw_load_report(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: Theme) {
-    let Some(InvestigationProfilesView::LoadReport {
-        name,
-        loaded_graph_count,
-        unresolved,
-    }) = app.investigation_profiles_view()
-    else {
-        return;
-    };
-    let popup = report_dialog_area(area);
-    let block = modal_block_focused(modal_title("PROFILE LOAD RESULT", theme), theme);
-    let content = block.inner(popup);
-    frame.render_widget(Clear, popup);
-    frame.render_widget(block, popup);
-    frame.render_widget(
-        Paragraph::new(format!(
-            "Loaded \"{name}\": {loaded_graph_count} Graph{}, {} unresolved.",
-            if *loaded_graph_count == 1 { "" } else { "s" },
-            unresolved.len()
-        ))
-        .style(Style::default().fg(theme.text)),
-        row(content, 0),
-    );
-    frame.render_widget(
-        Paragraph::new("Unresolved templates were not guessed or redirected.")
-            .style(Style::default().fg(theme.warning)),
-        row(content, 2),
-    );
-    let list = report_list_area(content);
-    let lines = unresolved
-        .iter()
-        .skip(app.investigation_profiles_scroll_offset())
-        .take(list.height as usize)
-        .map(|line| Line::from(Span::styled(line.clone(), Style::default().fg(theme.text))))
-        .collect::<Vec<_>>();
-    frame.render_widget(Paragraph::new(lines), list);
-    frame.render_widget(
-        Paragraph::new(Line::from(shortcut_spans(
-            &[
-                ("↑/↓", "Scroll"),
-                ("PageUp/PageDown", "Page"),
-                ("Enter/Esc", "Close"),
-            ],
-            theme,
-        ))),
-        row(content, REPORT_SHORTCUT_ROW),
-    );
-}
-
 pub(crate) fn investigation_profiles_page_size_for_screen(area: Rect, app: &App) -> usize {
-    if matches!(
-        app.investigation_profiles_view(),
-        Some(InvestigationProfilesView::LoadReport { .. })
-    ) {
-        let popup = report_dialog_area(area);
-        let content = popup.inner(ratatui::layout::Margin {
-            vertical: 1,
-            horizontal: 1,
-        });
-        report_list_area(content).height.max(1) as usize
-    } else {
-        browse_layout(area, app.investigation_profiles_entry_count())
-            .list
-            .height
-            .max(1) as usize
-    }
+    browse_layout(
+        area,
+        app.investigation_profiles_entry_count(),
+        app.selected_investigation_profile()
+            .map(|profile| profile.tracked_names.len())
+            .unwrap_or(0),
+    )
+    .list
+    .height
+    .max(1) as usize
 }
 
 pub(crate) fn investigation_profile_index_at(
@@ -475,8 +383,9 @@ pub(crate) fn investigation_profile_index_at(
     y: u16,
     scroll_offset: usize,
     profile_count: usize,
+    selected_tracked_count: usize,
 ) -> Option<usize> {
-    let list = browse_layout(area, profile_count).list;
+    let list = browse_layout(area, profile_count, selected_tracked_count).list;
     if !contains(list, x, y) {
         return None;
     }
@@ -506,14 +415,12 @@ fn profile_row_text(
     cursor: &str,
     name: &str,
     tracked_count: usize,
-    graph_count: usize,
     active: bool,
     width: usize,
 ) -> String {
     let suffix = format!(
-        "  {:>2} tracked  {:>2} Graphs{}",
+        "  {:>2} tracked{}",
         tracked_count,
-        graph_count,
         if active { "  [current]" } else { "" }
     );
     let name_width = width.saturating_sub(cursor.chars().count() + 1 + suffix.chars().count());
@@ -521,19 +428,6 @@ fn profile_row_text(
         "{cursor} {:<name_width$}{suffix}",
         truncate(name, name_width)
     )
-}
-
-fn graph_layout_label(columns: u8) -> &'static str {
-    match columns {
-        1 => "1 col",
-        2 => "2 cols",
-        3 => "3 cols",
-        _ => "Auto",
-    }
-}
-
-fn on_off(value: bool) -> &'static str {
-    if value { "On" } else { "Off" }
 }
 
 fn startup_description(startup: InvestigationStartup) -> &'static str {
@@ -585,14 +479,22 @@ struct BrowseLayout {
     list: Rect,
     summary_label_row: u16,
     summary_row: u16,
+    summary_height: u16,
     shortcut_row: u16,
 }
 
-fn browse_layout(area: Rect, profile_count: usize) -> BrowseLayout {
+fn browse_layout(area: Rect, profile_count: usize, selected_tracked_count: usize) -> BrowseLayout {
     let list_height = (profile_count as u16).clamp(1, MAX_LIST_HEIGHT);
     let summary_label_row = LIST_ROW.saturating_add(list_height).saturating_add(1);
     let summary_row = summary_label_row.saturating_add(1);
-    let shortcut_row = summary_row.saturating_add(6);
+    let max_summary_height = area
+        .height
+        .saturating_sub(summary_row.saturating_add(4))
+        .max(1);
+    let summary_height = (selected_tracked_count as u16)
+        .max(1)
+        .min(max_summary_height);
+    let shortcut_row = summary_row.saturating_add(summary_height).saturating_add(1);
     let popup = centered_dialog_rect(area, DIALOG_WIDTH, shortcut_row.saturating_add(3));
     let content = popup.inner(ratatui::layout::Margin {
         vertical: 1,
@@ -610,25 +512,13 @@ fn browse_layout(area: Rect, profile_count: usize) -> BrowseLayout {
         list,
         summary_label_row,
         summary_row,
+        summary_height,
         shortcut_row,
     }
 }
 
-fn report_dialog_area(area: Rect) -> Rect {
-    centered_dialog_rect(area, DIALOG_WIDTH, REPORT_DIALOG_HEIGHT)
-}
-
 fn startup_dialog_area(area: Rect) -> Rect {
     centered_dialog_rect(area, STARTUP_DIALOG_WIDTH, STARTUP_DIALOG_HEIGHT)
-}
-
-fn report_list_area(content: Rect) -> Rect {
-    Rect::new(
-        content.x,
-        content.y.saturating_add(REPORT_LIST_ROW),
-        content.width,
-        REPORT_LIST_HEIGHT.min(content.height.saturating_sub(REPORT_LIST_ROW)),
-    )
 }
 
 fn row(content: Rect, offset: u16) -> Rect {

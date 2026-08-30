@@ -178,12 +178,12 @@ fn build_runtime_config_uses_config_process_filters() {
 #[test]
 fn build_runtime_config_restores_process_table_settings() {
     let mut config = AppConfig::default();
-    config.process_table.preset = "Custom".to_string();
-    config.process_table.columns = vec!["CPU %".to_string(), "Private".to_string()];
-    config.process_table.sort_by = "CPU %".to_string();
-    config.process_table.sort_order = "asc".to_string();
-    config.process_table.tracked_only = true;
-    config.process_table.view = "Tree".to_string();
+    config.process_table.preset = Some("Custom".to_string());
+    config.process_table.columns = Some(vec!["CPU %".to_string(), "Private".to_string()]);
+    config.process_table.sort_by = Some("CPU %".to_string());
+    config.process_table.sort_order = Some("asc".to_string());
+    config.process_table.tracked_only = Some(true);
+    config.process_table.view = Some("Tree".to_string());
 
     let runtime = build_runtime_config(config).unwrap();
 
@@ -332,13 +332,13 @@ fn default_runtime_config_selects_all_process_columns() {
 #[test]
 fn removed_gc_rate_columns_are_ignored_in_saved_config() {
     let mut config = AppConfig::default();
-    config.process_table.preset = "Custom".to_string();
-    config.process_table.columns = vec![
+    config.process_table.preset = Some("Custom".to_string());
+    config.process_table.columns = Some(vec![
         ".NET GC0/s".to_string(),
         "CPU%".to_string(),
         ".NET GC2/s".to_string(),
-    ];
-    config.process_table.sort_by = ".NET GC1/s".to_string();
+    ]);
+    config.process_table.sort_by = Some(".NET GC1/s".to_string());
 
     let runtime = build_runtime_config(config).unwrap();
 
@@ -406,8 +406,8 @@ fn tracked_entries_do_not_enable_tracked_only_without_saved_state() {
 #[test]
 fn build_runtime_config_falls_back_when_custom_columns_are_empty() {
     let mut config = AppConfig::default();
-    config.process_table.preset = "Custom".to_string();
-    config.process_table.columns.clear();
+    config.process_table.preset = Some("Custom".to_string());
+    config.process_table.columns = Some(Vec::new());
 
     let runtime = build_runtime_config(config).unwrap();
 
@@ -465,9 +465,9 @@ fn runtime_config_uses_no_recording_dir_by_default() {
 #[test]
 fn build_runtime_config_restores_graph_view_settings() {
     let mut config = AppConfig::default();
-    config.graphs.columns = 2;
-    config.graphs.samples = false;
-    config.graphs.delta = false;
+    config.graphs.columns = Some(2);
+    config.graphs.samples = Some(false);
+    config.graphs.delta = Some(false);
 
     let runtime = build_runtime_config(config).unwrap();
 
@@ -482,7 +482,7 @@ fn build_runtime_config_restores_graph_view_settings() {
 #[test]
 fn invalid_graph_column_count_falls_back_to_auto() {
     let mut config = AppConfig::default();
-    config.graphs.columns = 4;
+    config.graphs.columns = Some(4);
 
     let runtime = build_runtime_config(config).unwrap();
 
@@ -492,7 +492,7 @@ fn invalid_graph_column_count_falls_back_to_auto() {
 #[test]
 fn build_runtime_config_restores_three_column_graph_layout() {
     let mut config = AppConfig::default();
-    config.graphs.columns = 3;
+    config.graphs.columns = Some(3);
 
     let runtime = build_runtime_config(config).unwrap();
 
@@ -744,21 +744,6 @@ fn investigation_profiles_round_trip_through_config() {
         name: "API investigation".to_string(),
         investigation: config::InvestigationStateConfig {
             tracked_names: vec!["api.exe".to_string()],
-            process_columns: vec!["CPU%".to_string(), "PrivBytes".to_string()],
-            graphs: vec![config::InvestigationGraphConfig {
-                kind: "process".to_string(),
-                metric: "private_bytes".to_string(),
-                display_mode: "ma5".to_string(),
-                process_name: Some("api.exe".to_string()),
-                executable_path: Some(r"C:\apps\api.exe".to_string()),
-                gpu_adapter_name: None,
-            }],
-            graph_columns: 2,
-            graph_time_span_seconds: 300,
-            samples: false,
-            delta: false,
-            y_axis_zero_min: false,
-            recording_interval_seconds: 5,
             ..config::InvestigationStateConfig::default()
         },
     }];
@@ -773,9 +758,17 @@ fn investigation_profiles_round_trip_through_config() {
         rendered.contains("[[investigation_profiles]]"),
         "{rendered}"
     );
-    assert!(
-        rendered.contains("[[investigation_profiles.graphs]]"),
-        "{rendered}"
+    let value = toml::from_str::<toml::Value>(&rendered).unwrap();
+    let profile = value["investigation_profiles"]
+        .as_array()
+        .unwrap()
+        .first()
+        .unwrap()
+        .as_table()
+        .unwrap();
+    assert_eq!(
+        profile.keys().map(String::as_str).collect::<Vec<_>>(),
+        vec!["name", "tracked_names"]
     );
     assert_eq!(runtime.saved_investigation_profiles.len(), 1);
     assert_eq!(
@@ -785,14 +778,33 @@ fn investigation_profiles_round_trip_through_config() {
 }
 
 #[test]
-fn investigation_profile_config_normalizes_invalid_values() {
+fn broad_profile_config_migrates_global_settings_from_last_investigation_only() {
     let mut config = AppConfig::default();
+    config.investigation = Some(config::InvestigationConfig {
+        startup: config::InvestigationStartup::ResumeLast,
+        active_profile: None,
+        last: config::InvestigationStateConfig {
+            tracked_names: vec![" current.exe ".to_string()],
+            tracked_only: Some(true),
+            process_view: Some("Tree".to_string()),
+            process_columns: Some(vec!["CPU%".to_string(), "PrivBytes".to_string()]),
+            sort_by: Some("CPU%".to_string()),
+            sort_order: Some("asc".to_string()),
+            graph_columns: Some(2),
+            graph_time_span_seconds: Some(300),
+            samples: Some(false),
+            delta: Some(false),
+            y_axis_zero_min: Some(false),
+            recording_interval_seconds: Some(5),
+            ..config::InvestigationStateConfig::default()
+        },
+    });
     config.investigation_profiles = vec![
         config::SavedInvestigationProfile {
             name: " Profile ".to_string(),
             investigation: config::InvestigationStateConfig {
                 tracked_names: vec![" app.exe ".to_string(), "APP.EXE".to_string()],
-                process_columns: vec!["unknown".to_string()],
+                process_columns: Some(vec!["unknown".to_string()]),
                 graphs: vec![config::InvestigationGraphConfig {
                     kind: " PROCESS ".to_string(),
                     metric: " PRIVATE_BYTES ".to_string(),
@@ -801,12 +813,12 @@ fn investigation_profile_config_normalizes_invalid_values() {
                     executable_path: Some(" ".to_string()),
                     gpu_adapter_name: None,
                 }],
-                graph_columns: 9,
-                graph_time_span_seconds: 1,
-                samples: true,
-                delta: true,
-                y_axis_zero_min: true,
-                recording_interval_seconds: 3,
+                graph_columns: Some(9),
+                graph_time_span_seconds: Some(1),
+                samples: Some(true),
+                delta: Some(true),
+                y_axis_zero_min: Some(true),
+                recording_interval_seconds: Some(10),
                 ..config::InvestigationStateConfig::default()
             },
         },
@@ -824,21 +836,121 @@ fn investigation_profile_config_normalizes_invalid_values() {
     assert_eq!(profile.name, "Profile");
     assert_eq!(profile.tracked_names, ["app.exe"]);
     assert_eq!(
-        profile.process_columns,
-        ColumnPreset::Default
-            .effective_columns()
-            .iter()
-            .map(|column| column.label().to_string())
-            .collect::<Vec<_>>()
+        profile.investigation,
+        config::InvestigationStateConfig {
+            tracked_names: vec!["app.exe".to_string()],
+            ..config::InvestigationStateConfig::default()
+        }
     );
-    assert_eq!(profile.graph_columns, 0);
-    assert_eq!(profile.graph_time_span_seconds, 60);
-    assert_eq!(profile.recording_interval_seconds, 1);
-    assert_eq!(profile.graphs[0].kind, "process");
-    assert_eq!(profile.graphs[0].metric, "private_bytes");
-    assert_eq!(profile.graphs[0].display_mode, "ma5");
-    assert_eq!(profile.graphs[0].process_name.as_deref(), Some("app.exe"));
-    assert_eq!(profile.graphs[0].executable_path, None);
+    assert_eq!(runtime.process_filters, ["current.exe"]);
+    assert!(runtime.initial_tracked_only);
+    assert_eq!(runtime.initial_process_view_mode, ProcessViewMode::Tree);
+    assert_eq!(
+        runtime.process_columns,
+        [MetricColumn::CpuPercent, MetricColumn::PrivateBytes]
+    );
+    assert_eq!(
+        runtime.initial_graph_slot_layout,
+        GraphSlotLayout::TwoColumns
+    );
+    assert_eq!(runtime.initial_graph_time_span_seconds, 300);
+    assert!(!runtime.initial_show_samples_panel);
+    assert!(!runtime.initial_show_sample_delta);
+    assert!(!runtime.initial_graph_y_axis_zero_min);
+    assert_eq!(runtime.initial_recording_interval_seconds, 5);
+}
+
+#[test]
+fn explicit_global_preferences_win_over_legacy_investigation_values() {
+    let mut config = AppConfig::default();
+    config.process_table.view = Some("Flat".to_string());
+    config.process_table.tracked_only = Some(false);
+    config.graphs.time_span_seconds = Some(600);
+    config.recording.interval_seconds = Some(10);
+    config.investigation = Some(config::InvestigationConfig {
+        startup: config::InvestigationStartup::ResumeLast,
+        active_profile: None,
+        last: config::InvestigationStateConfig {
+            process_view: Some("Tree".to_string()),
+            tracked_only: Some(true),
+            graph_time_span_seconds: Some(300),
+            recording_interval_seconds: Some(5),
+            ..config::InvestigationStateConfig::default()
+        },
+    });
+
+    let runtime = build_runtime_config(config).unwrap();
+
+    assert_eq!(runtime.initial_process_view_mode, ProcessViewMode::Flat);
+    assert!(!runtime.initial_tracked_only);
+    assert_eq!(runtime.initial_graph_time_span_seconds, 600);
+    assert_eq!(runtime.initial_recording_interval_seconds, 10);
+}
+
+#[test]
+fn legacy_broad_profile_toml_is_rewritten_as_tracked_names_only() {
+    let mut config: AppConfig = toml::from_str(
+        r#"
+[investigation]
+startup = "resume_last"
+tracked_names = ["current.exe"]
+tracked_only = true
+process_view = "Tree"
+process_columns = ["CPU%", "PrivBytes"]
+sort_by = "CPU%"
+sort_order = "Asc"
+graph_columns = 2
+graph_time_span_seconds = 300
+samples = false
+delta = false
+y_axis_zero_min = false
+recording_interval_seconds = 5
+
+[[investigation.graphs]]
+kind = "process"
+metric = "private_bytes"
+display_mode = "ma5"
+process_name = "current.exe"
+
+[[investigation_profiles]]
+name = "Legacy API"
+tracked_names = ["api.exe"]
+tracked_only = false
+process_view = "Flat"
+graph_columns = 3
+
+[[investigation_profiles.graphs]]
+kind = "process"
+metric = "private_bytes"
+display_mode = "raw"
+process_name = "api.exe"
+"#,
+    )
+    .unwrap();
+
+    config::prepare_app_config(&mut config);
+    let rendered = toml::to_string_pretty(&config).unwrap();
+    let value = toml::from_str::<toml::Value>(&rendered).unwrap();
+    let profile = value["investigation_profiles"]
+        .as_array()
+        .unwrap()
+        .first()
+        .unwrap()
+        .as_table()
+        .unwrap();
+
+    assert_eq!(
+        profile.keys().map(String::as_str).collect::<Vec<_>>(),
+        vec!["name", "tracked_names"]
+    );
+    assert_eq!(config.graphs.columns, Some(2));
+    assert_eq!(config.graphs.time_span_seconds, Some(300));
+    assert_eq!(config.recording.interval_seconds, Some(5));
+    assert!(!rendered.contains("[[investigation.graphs]]"), "{rendered}");
+    assert!(
+        !rendered.contains("[[investigation_profiles.graphs]]"),
+        "{rendered}"
+    );
 }
 
 #[test]
@@ -887,7 +999,7 @@ fn app_config_saves_selected_color_scheme() {
 }
 
 #[test]
-fn app_config_saves_graph_layout_and_explicit_samples_preference() {
+fn app_config_saves_global_graph_preferences_without_graph_registrations() {
     let mut app = make_test_app(3, 10);
     assign_private_graph(&mut app);
     app.graph_entries[0].display_mode = GraphDisplayMode::MovingAverage5;
@@ -901,13 +1013,17 @@ fn app_config_saves_graph_layout_and_explicit_samples_preference() {
     let runtime = build_runtime_config(load_config(&path).unwrap()).unwrap();
     let _ = std::fs::remove_file(&path);
 
-    assert!(rendered.contains("[investigation]"), "{rendered}");
-    assert!(rendered.contains("graph_columns = 2"), "{rendered}");
+    assert!(rendered.contains("[graphs]"), "{rendered}");
+    assert!(rendered.contains("columns = 2"), "{rendered}");
     assert!(rendered.contains("samples = false"), "{rendered}");
     assert!(rendered.contains("delta = false"), "{rendered}");
-    assert!(rendered.contains("display_mode = \"ma5\""), "{rendered}");
-    assert_eq!(runtime.initial_graph_templates.len(), 1);
-    assert_eq!(runtime.initial_graph_templates[0].display_mode, "ma5");
+    assert!(!rendered.contains("display_mode = \"ma5\""), "{rendered}");
+    assert_eq!(
+        runtime.initial_graph_slot_layout,
+        GraphSlotLayout::TwoColumns
+    );
+    assert!(!runtime.initial_show_samples_panel);
+    assert!(!runtime.initial_show_sample_delta);
 }
 
 #[test]
@@ -919,8 +1035,8 @@ fn app_config_saves_auto_graph_layout() {
     let rendered = std::fs::read_to_string(&path).unwrap();
     let _ = std::fs::remove_file(&path);
 
-    assert!(rendered.contains("[investigation]"), "{rendered}");
-    assert!(rendered.contains("graph_columns = 0"), "{rendered}");
+    assert!(rendered.contains("[graphs]"), "{rendered}");
+    assert!(rendered.contains("columns = 0"), "{rendered}");
 }
 
 #[test]

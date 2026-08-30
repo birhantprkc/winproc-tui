@@ -1323,7 +1323,6 @@ impl App {
         let show_sample_delta = runtime.initial_show_sample_delta;
         let graph_time_span_seconds = runtime.initial_graph_time_span_seconds;
         let graph_y_axis_zero_min = runtime.initial_graph_y_axis_zero_min;
-        let initial_graph_templates = runtime.initial_graph_templates.clone();
         let active_investigation_profile = runtime.active_investigation_profile.clone();
         let recording_interval_index = RECORDING_INTERVAL_OPTIONS_SECONDS
             .iter()
@@ -1550,8 +1549,6 @@ impl App {
         app.ensure_sort_column_visible();
         app.rebuild_visible_process_cache();
         app.clamp_process_table_state();
-        app.restore_initial_investigation_graphs(initial_graph_templates);
-
         Ok(app)
     }
 

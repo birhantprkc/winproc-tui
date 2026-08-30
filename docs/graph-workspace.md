@@ -10,15 +10,13 @@ A source identifies one graphable system metric or one process metric. Process s
 
 The collection has no holes or duplicate sources. A non-empty collection always has one `active_graph_id` that resolves to an entry, and an ID is never reused during the run.
 
-The Current Investigation and named Investigation Profiles store ordered reusable Graph source templates and each template's Raw/MA5 mode. They never store Graph IDs, resolved process lifetimes, scroll position, or cursor state. On the next launch or explicit profile load, templates rebuild the workspace with new Graph IDs after they resolve against the current Live snapshot.
+Graph registrations are runtime session state. They are not written to `winproc-tui.toml`, and every new Live session starts with an empty workspace. Loading or saving an Investigation Profile does not add, remove, reorder, or otherwise change the current Graphs.
 
-## Investigation Profile Templates
+## Persistence Boundary
 
-An Investigation Profile stores ordered Graph source templates rather than `GraphSlot` values. A process template contains a case-insensitive process name, an optional executable-path constraint captured when available, and a stable metric identifier. A GPU template contains the adapter name and stable GPU metric identifier. Other system templates contain only their stable system metric identity.
+Graph source, order, active ID, Raw/MA5 mode, A/B points, selected sample time, fit-all state, visible-time offset, live-follow position, and Graph scroll position remain session-local. Process Graphs require a full runtime `ProcessIdentity`, so a tracked process name in an Investigation Profile is never treated as enough information to recreate one.
 
-Profile and last-investigation loading resolve templates against the current Live snapshot. A process or GPU template is restored only when it has exactly one match. Missing or multiple matches, invalid metric identifiers, duplicate resolved sources, and entries beyond the 16-Graph limit are skipped and listed in the load result; the application never guesses, merges, or redirects them. Each restored Graph receives a new run-unique `GraphId` and restores the template's Raw/MA5 display mode.
-
-Loading preserves the stored template order and restores the Graph layout, each Graph's Raw/MA5 mode, shared fixed time span, Samples and Delta visibility, and Y-axis lower-bound mode. It resets A/B points, selected sample time, fit-all state, visible-time offset, live-follow position, Graph scroll position, and other run-specific state. An unavailable template does not prevent available templates from loading.
+Graph layout, fixed time span, Samples and Delta visibility, and Y-axis lower-bound mode are application-wide presentation preferences stored once in `winproc-tui.toml`. They apply to the current workspace but do not belong to an Investigation Profile.
 
 ## Shared and Graph-Specific State
 
@@ -74,7 +72,7 @@ Drawing and mouse hit testing consume one `GraphWorkspaceLayout` result for shar
 ## Invariants
 
 - A non-empty workspace contains at most 16 unique sources and one valid active ID.
-- Profile templates resolve only to unique current Live sources and never persist a `GraphId` or `ProcessIdentity`.
+- Graph registrations and their runtime identities are never persisted or reconstructed from process names.
 - Graph IDs are run-unique and never reused.
 - Reordering preserves identity and all shared comparison state.
 - Raw or MA5 mode remains owned by its Graph entry across reordering and resize.

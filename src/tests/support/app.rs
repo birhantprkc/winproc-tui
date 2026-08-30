@@ -135,7 +135,6 @@ pub(in crate::tests) fn make_test_app_with_workers(
             recording_last_dir: None,
             initial_theme: "Green".to_string(),
             initial_graph_slot_layout: GraphSlotLayout::Auto,
-            initial_graph_templates: Vec::new(),
             initial_graph_time_span_seconds: 60,
             initial_graph_y_axis_zero_min: true,
             initial_show_samples_panel: true,

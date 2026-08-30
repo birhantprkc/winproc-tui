@@ -177,26 +177,6 @@ impl App {
                     }
                     _ => {}
                 },
-                InvestigationProfilesView::LoadReport { .. } => match key.code {
-                    KeyCode::Esc | KeyCode::Enter => self.close_investigation_profiles(),
-                    KeyCode::Up => self.scroll_investigation_profile_report_up(1),
-                    KeyCode::Down => self.scroll_investigation_profile_report_down(1),
-                    KeyCode::PageUp => self.scroll_investigation_profile_report_up(
-                        self.investigation_profiles_dialog
-                            .as_ref()
-                            .map(|dialog| dialog.scroll.page_size)
-                            .unwrap_or(1),
-                    ),
-                    KeyCode::PageDown => self.scroll_investigation_profile_report_down(
-                        self.investigation_profiles_dialog
-                            .as_ref()
-                            .map(|dialog| dialog.scroll.page_size)
-                            .unwrap_or(1),
-                    ),
-                    KeyCode::Home => self.scroll_investigation_profile_report_up(usize::MAX),
-                    KeyCode::End => self.scroll_investigation_profile_report_down(usize::MAX),
-                    _ => {}
-                },
             }
             return Ok(());
         }
@@ -796,6 +776,10 @@ impl App {
             return Ok(());
         }
 
+        if is_ctrl_s(key) {
+            self.save_active_investigation_profile();
+            return Ok(());
+        }
         if is_ctrl_t(key) {
             self.open_investigation_profiles();
             return Ok(());
@@ -1538,6 +1522,9 @@ impl App {
                         mouse.row,
                         self.investigation_profiles_scroll_offset(),
                         self.investigation_profiles_entry_count(),
+                        self.selected_investigation_profile()
+                            .map(|profile| profile.tracked_names.len())
+                            .unwrap_or(0),
                     ) {
                         self.select_investigation_profile_index(index);
                     }
@@ -1553,16 +1540,6 @@ impl App {
                         self.select_investigation_startup(startup);
                         self.apply_selected_investigation_startup();
                     }
-                }
-                MouseEventKind::ScrollUp
-                    if matches!(view, InvestigationProfilesView::LoadReport { .. }) =>
-                {
-                    self.scroll_investigation_profile_report_up(1);
-                }
-                MouseEventKind::ScrollDown
-                    if matches!(view, InvestigationProfilesView::LoadReport { .. }) =>
-                {
-                    self.scroll_investigation_profile_report_down(1);
                 }
                 MouseEventKind::ScrollUp
                     if matches!(view, InvestigationProfilesView::Startup { .. }) =>
@@ -3152,6 +3129,12 @@ fn samples_scrollbar_offset_at(
 
 fn is_ctrl_t(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'t'))
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && !key.modifiers.contains(KeyModifiers::ALT)
+}
+
+fn is_ctrl_s(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'s'))
         && key.modifiers.contains(KeyModifiers::CONTROL)
         && !key.modifiers.contains(KeyModifiers::ALT)
 }

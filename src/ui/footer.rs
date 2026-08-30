@@ -129,6 +129,9 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
         items.push(("Ctrl+P", "Pause"));
     }
     items.insert(0, ("ESC", "Menu"));
+    if app.activity() == AppActivity::Live {
+        items.push(("Ctrl+S", "Save Profile"));
+    }
     items.push(("Ctrl+T", "Profiles"));
     items.push(("F12", "Color"));
     items.push(("F1/?", "Help"));

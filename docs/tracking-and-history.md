@@ -8,10 +8,10 @@ This document defines how `winproc-tui` represents investigation state, tracking
 |---|---|
 | Tracking List entry | A case-insensitive process name expressing what the user wants to retain or record. |
 | `ProcessIdentity` | One process lifetime identified by PID, name, and start time. |
-| Current Investigation | The mutable, automatically saved investigation state used by the current Live session. |
+| Current Investigation | The mutable working Tracking List and optional active-profile binding used by the current Live session. |
 | Working Tracking List | The tracked-name field inside the Current Investigation. It is not an independently named object. |
-| Investigation Profile | The only named reusable investigation unit. It is changed only by explicit profile actions. |
-| Tracked-only | A profile-owned display filter; it is not inferred from whether the working Tracking List is empty. |
+| Investigation Profile | A named reusable Tracking List. It is changed only by explicit profile actions. |
+| Tracked-only | A global display preference; it is not inferred from whether the working Tracking List is empty. |
 | Ghost Row | The newest exited identity retained for a tracked name so its final values and history remain inspectable. |
 
 Tracking intent uses process names because PIDs change across restarts and one name can have several live instances. Histories, selections, Process Info targets, and process Graphs use full `ProcessIdentity` values so a reused PID or restarted process never inherits another lifetime's samples.
@@ -20,23 +20,25 @@ System history is independent from Tracking Lists. MEM, GPU, System Activity, an
 
 ## Current Investigation and Profiles
 
-The Current Investigation owns the working Tracking List, Tracked-only state, Processes Flat/Tree mode, visible process columns and order, process sort, ordered Graph templates and each Graph's Raw/MA5 mode, Graph layout and time span, Samples and Delta visibility, Y-axis lower-bound mode, and the default Recording interval. It is automatically written as the last investigation after a successful run.
+The Current Investigation owns only the working Tracking List and its optional active-profile binding. The last working Tracking List is automatically written after a successful run.
 
-Changing a process's tracked state edits the working Tracking List in the Current Investigation. It marks an active profile as modified but never overwrites that named profile. A saved profile changes only through explicit Save, Save As, or Delete actions; Open explicitly replaces the Current Investigation from a saved profile. Theme, mouse enablement, process column widths, preferred Processes panel height, text filter, selections, retained samples, and runtime process identities remain outside profiles.
+Changing a process's tracked state edits the working Tracking List in the Current Investigation. It marks an active profile as modified but never overwrites that named profile. A saved profile contains only its profile name and case-insensitive tracked process names. It changes only through explicit Save, Save As, or Delete actions.
 
-Opening a profile is available only in Live and replaces the complete profile-owned portion of the Current Investigation. It can remove names whose older retained samples are no longer needed. When that operation would discard history beyond general Live retention, the application asks for confirmation before pruning it. Profile deletion remains available in Recording and Log view because it does not change the active investigation.
+Opening a profile is available only in Live and replaces only the working Tracking List and active-profile binding. It does not change Tracked-only, Processes Flat/Tree mode, visible columns and order, process sort, Graphs, Graph layout or time span, Samples or Delta visibility, Y-axis mode, or the Recording interval. It can remove names whose older retained samples are no longer needed. When that operation would discard history beyond general Live retention, the application asks for confirmation before pruning it. Profile deletion remains available in Recording and Log view because it does not change the active investigation.
 
 The active profile is the explicit target for Save. A saved profile becomes active only when it is selected at startup, opened in Live, or created with Save As during the current run. `Resume last` and `Start empty` begin with no active profile, so Save follows the Save As flow until a profile is explicitly opened or created. The header shows that binding and a non-color modified marker; Log view has no Current Investigation binding.
 
-Profiles express tracking intent with case-insensitive process names. Their process Graph templates may additionally include an executable-path constraint captured when available. Profiles never store a PID, start time, `ProcessIdentity`, current selection, text filter, retained history, A/B points, or other run-specific cursor state. Graph template resolution is defined in [Graph Workspace](graph-workspace.md).
+Profiles express tracking intent with case-insensitive process names. They never store a PID, start time, `ProcessIdentity`, Graph registration, current selection, text filter, retained history, A/B points, or presentation preference.
+
+Theme, mouse enablement, Tracked-only, Processes Flat/Tree mode, visible process columns and order, process sort, process column widths, preferred Processes panel height, Graph layout and time span, Samples and Delta visibility, Y-axis lower-bound mode, and the default Recording interval are application-wide preferences stored once in `winproc-tui.toml`. Filter input, selections, retained samples, runtime process identities, and Graph registrations remain session-local and are not restored.
 
 ## Startup
 
 Startup mode can `Resume last`, `Choose Profile`, or `Start empty`. The chooser contains `Last investigation`, `Empty investigation`, and every saved Investigation Profile. The two built-in choices are virtual and are never persisted or bound as named profiles. The startup setting is available from the main menu's Config section.
 
-Startup applies investigation state in two phases. The selected Tracking List, Tracked-only state, process view, columns, sort, Graph workspace options, and Recording default are resolved before the first sample, so tracked-history retention applies from the first capture. After that sample establishes current process and GPU identities, Graph templates resolve against it and receive new run-unique Graph IDs. Unresolved or ambiguous templates are reported and never guessed.
+Startup applies the selected Tracking List before the first sample so tracked-history retention applies from the first capture. Application-wide preferences are loaded independently. Graph registrations always begin empty and are added explicitly during the run.
 
-Startup-setting and explicit profile changes persist immediately. Other Current Investigation changes are written after a successful interactive run; filter input is never persisted. Legacy named Tracking Lists are migrated once into Investigation Profiles using the remaining legacy investigation settings. A colliding profile name is preserved by adding a ` (Tracking List)` suffix, with a numeric suffix when needed; subsequent writes omit the legacy list format.
+Startup-setting and explicit profile changes persist immediately. Other Current Investigation and application-wide preference changes are written after a successful interactive run; filter input is never persisted. Existing broad Investigation Profiles are normalized to a profile name and tracked process names. When global preference fields are absent, presentation settings from the legacy last Current Investigation are promoted to the global fields; per-profile presentation fields and Graph templates are discarded. Legacy named Tracking Lists are migrated once into Investigation Profiles. A colliding profile name is preserved by adding a ` (Tracking List)` suffix, with a numeric suffix when needed; subsequent writes omit the legacy formats.
 
 ## Processes Flat and Tree Views
 
@@ -76,9 +78,10 @@ Starting a Recording copies the working Tracking List into session-owned scope. 
 - PID reuse and process restart must never merge histories.
 - Tracked-only must remain independent from the contents of the working Tracking List.
 - Current Investigation changes must not overwrite a named profile implicitly.
-- Loading a profile must pass the retained-history confirmation boundary before replacing the Current Investigation.
+- Loading a profile must pass the retained-history confirmation boundary before replacing the working Tracking List.
 - `Last investigation` and `Empty investigation` must never be persisted as named profiles.
-- Tracking intent must be applied before the initial sample; Graph templates must resolve only after current identities exist.
+- A profile change must never change application-wide preferences or Graph registrations.
+- Tracking intent must be applied before the initial sample.
 - History pruning must remove samples and peaks together.
 - Ordinary Live history must retain at most two complete generations per case-insensitive process name.
 - Concurrently live identities and explicit paused-display, Graph, or Process Info references must remain inspectable even when they exceed the ordinary generation limit.

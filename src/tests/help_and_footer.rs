@@ -151,6 +151,10 @@ fn help_dialog_buffer_shows_two_column_layout() {
         rendered.contains("Open an Investigation Profile"),
         "{rendered}"
     );
+    assert!(
+        rendered.contains("Save the active Investigation Profile"),
+        "{rendered}"
+    );
     assert!(rendered.contains("Copy selected row"), "{rendered}");
     assert!(!rendered.contains("Open Settings"), "{rendered}");
 
@@ -362,6 +366,7 @@ fn footer_shows_process_context_on_one_row() {
 
     assert!(rendered.contains("PROCESSES"), "{rendered}");
     assert!(rendered.contains("Ctrl+P Pause"), "{rendered}");
+    assert!(rendered.contains("Ctrl+S Save Profile"), "{rendered}");
     assert!(rendered.contains("Ctrl+T Profiles"), "{rendered}");
     assert!(rendered.contains("c Columns"), "{rendered}");
     assert!(rendered.contains("s Sort"), "{rendered}");

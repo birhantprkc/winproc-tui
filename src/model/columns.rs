@@ -489,18 +489,6 @@ pub(crate) enum ColumnPreset {
 }
 
 impl ColumnPreset {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Default => "Default",
-            Self::Memory => "Memory",
-            Self::Resources => "Resources",
-            Self::DotNet => ".NET",
-            Self::Gpu => "GPU",
-            Self::Io => "IO",
-            Self::Custom => "Custom",
-        }
-    }
-
     pub(crate) fn columns(self) -> &'static [MetricColumn] {
         match self {
             Self::Default => &MetricColumn::ALL,

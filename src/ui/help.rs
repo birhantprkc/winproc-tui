@@ -252,6 +252,10 @@ const TRACKING_ROWS: &[HelpItem] = &[
         key: "Ctrl+T",
         label: "Open an Investigation Profile",
     },
+    HelpItem {
+        key: "Ctrl+S",
+        label: "Save the active Investigation Profile (Live only)",
+    },
 ];
 
 const GRAPH_ROWS: &[HelpItem] = &[

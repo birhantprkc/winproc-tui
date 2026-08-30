@@ -72,7 +72,7 @@ Graph または Samples にフォーカスを移し、`Left` / `Right` でサン
 ### プロセスを追跡・記録する
 
 1. Process または PID セルを選び、`Space`、ダブルクリック、または `t` でプロセス名を作業中の Tracking List へ追加します。
-2. `Ctrl+T` から保存済み Investigation Profile を開けます。Tracking List、プロセステーブル設定、Graph ワークスペース、記録間隔をまとめて保存するには、`MENU > Profile > Save` または `Save As` を使います。
+2. `Ctrl+T` から保存済み Investigation Profile を開けます。`Ctrl+S` で現在の Profile を上書き保存し、作業中の Tracking List に新しい名前を付けるときは `MENU > Profile > Save As` を使います。
 3. `Ctrl+R` を押し、保存先と `1s` / `2s` / `5s` / `10s` の記録間隔を選んで開始します。
 4. もう一度 `Ctrl+R` を押し、`y` で記録を終了します。`Enter`、`Esc`、`n` では記録を継続します。
 5. `Ctrl+L` から保存済みログを開き、あとから調査します。
@@ -86,12 +86,12 @@ Graph または Samples にフォーカスを移し、`Left` / `Right` でサン
 - **ライブモニタリング**: システムのメモリ負荷、GPU アダプター別の負荷とメモリ、ネットワーク / ディスク、CPU、プロセス別の詳細メトリクスを表示します。
 - **プロセスツリー**: Processes をソート可能なフラット一覧と、各ライブスナップショットで取得した親子関係のツリーに切り替え、フィルターやサブツリーの折りたたみを利用できます。
 - **Graph と A/B 比較**: 最大 16 個のメトリクスを並び順を変えられるワークスペースに配置し、連動する Samples を使って任意の 2 時点を正確に比較します。
-- **Investigation Profiles**: Tracking List、Tracked-only とプロセステーブル設定、Graph ワークスペース、記録間隔を 1 つの調査設定として保存します。追跡中のプロセスが終了したあとも最後の値を保持します。
+- **Investigation Profiles**: あとから起動するプロセスも調査できるよう、Tracking List に名前を付けて保存します。追跡中のプロセスが終了したあとも最後の値を保持します。
 - **.NET メトリクス**: 実行中の .NET 8 / 9 / 10 プロセスを自動検出してマネージドランタイムのメトリクスを表示し、.NET Framework 4.8 の一部ヒープメトリクスにも対応します。
 - **Process Info**: 選択したプロセスのメトリクス、イメージとランタイム、開いているファイル、DLL、環境変数を 1 つのダイアログから調査できます。
 - **記録と Log view**: システムメトリクスに加え、Tracking List の登録名に一致するプロセスを JSON Lines 形式で記録し、Log view の Processes、Graph、Samples、A/B 比較を使ってあとから調査できます。
 
-前回の調査設定一式は次回起動時に復元されます。起動時に保存済み Investigation Profile または空の調査設定を選ぶこともできます。フィルター入力と実行時のプロセス識別子は保存しません。
+前回の Tracking List とアプリ全体の表示設定は次回起動時に復元されます。起動時に保存済み Investigation Profile または空の Tracking List を選ぶこともできます。Graph の登録は起動のたびに空になり、フィルター入力と実行時のプロセス識別子も保存しません。
 
 ## 向いている用途
 

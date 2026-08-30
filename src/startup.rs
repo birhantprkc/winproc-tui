@@ -58,13 +58,13 @@ impl StartupInvestigationChoice {
         match self {
             Self::ResumeLast => "Last investigation".to_string(),
             Self::StartEmpty => "Empty investigation".to_string(),
-            Self::Saved(profile) => format!(
-                "{}  ({} tracked · {} Graph{})",
-                profile.name,
-                profile.tracked_names.len(),
-                profile.graphs.len(),
-                if profile.graphs.len() == 1 { "" } else { "s" }
-            ),
+            Self::Saved(profile) => {
+                format!(
+                    "{}  ({} tracked)",
+                    profile.name,
+                    profile.tracked_names.len()
+                )
+            }
         }
     }
 }
@@ -474,20 +474,22 @@ mod tests {
     }
 
     #[test]
-    fn saved_startup_choice_replaces_the_complete_last_investigation() {
+    fn saved_startup_choice_replaces_only_the_last_tracking_list() {
         let mut config = AppConfig::default();
         crate::config::prepare_app_config(&mut config);
-        apply_startup_choice(
-            &mut config,
-            StartupInvestigationChoice::Saved(SavedInvestigationProfile {
-                name: "API".to_string(),
-                investigation: InvestigationStateConfig {
-                    tracked_names: vec!["api.exe".to_string(), "worker.exe".to_string()],
-                    graph_time_span_seconds: 300,
-                    ..InvestigationStateConfig::default()
-                },
-            }),
+        config.graphs.time_span_seconds = Some(300);
+        let saved = SavedInvestigationProfile {
+            name: "API".to_string(),
+            investigation: InvestigationStateConfig {
+                tracked_names: vec!["api.exe".to_string(), "worker.exe".to_string()],
+                ..InvestigationStateConfig::default()
+            },
+        };
+        assert_eq!(
+            StartupInvestigationChoice::Saved(saved.clone()).label(),
+            "API  (2 tracked)"
         );
+        apply_startup_choice(&mut config, StartupInvestigationChoice::Saved(saved));
 
         let investigation = config.investigation.as_ref().unwrap();
         assert_eq!(investigation.active_profile.as_deref(), Some("API"));
@@ -500,7 +502,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["api.exe", "worker.exe"]
         );
-        assert_eq!(investigation.last.graph_time_span_seconds, 300);
+        assert_eq!(config.graphs.time_span_seconds, Some(300));
     }
 
     #[test]
@@ -510,13 +512,14 @@ mod tests {
         let investigation = config.investigation.as_mut().unwrap();
         investigation.active_profile = Some("API".to_string());
         investigation.last.tracked_names = vec!["api.exe".to_string()];
-        investigation.last.graph_time_span_seconds = 300;
+        config.graphs.time_span_seconds = Some(300);
 
         apply_startup_choice(&mut config, StartupInvestigationChoice::StartEmpty);
 
         let investigation = config.investigation.as_ref().unwrap();
         assert_eq!(investigation.last, InvestigationStateConfig::default());
         assert_eq!(investigation.active_profile, None);
+        assert_eq!(config.graphs.time_span_seconds, Some(300));
     }
 
     #[test]
@@ -526,7 +529,6 @@ mod tests {
         let investigation = config.investigation.as_mut().unwrap();
         investigation.active_profile = Some("API".to_string());
         investigation.last.tracked_names = vec!["api.exe".to_string()];
-        investigation.last.graph_time_span_seconds = 600;
         let expected_state = investigation.last.clone();
 
         apply_startup_choice(&mut config, StartupInvestigationChoice::ResumeLast);

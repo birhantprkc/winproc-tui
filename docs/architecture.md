@@ -66,7 +66,7 @@ Worker results carry enough identity, generation, or request information to reje
 
 `App` owns Live, paused, Recording, Log-list, and Log-view state. Display accessors select the appropriate snapshot and history without asking widgets to maintain activity-specific copies.
 
-Long-lived user intent and per-process identity remain separate. The Current Investigation and named Investigation Profiles store reusable intent, while Graph sources, Recording scope, and Process Info targets preserve runtime identity where required.
+Long-lived tracking intent and per-process identity remain separate. The Current Investigation owns the working Tracking List, and named Investigation Profiles store reusable tracked process names only. Application-wide presentation preferences are stored independently. Graph sources, Recording scope, and Process Info targets preserve runtime identity where required.
 
 ### 3.3 Treat Windows data as best effort
 
@@ -88,7 +88,7 @@ Configuration is stored beside the real executable after resolving command links
 
 1. `main` parses the CLI and acquires a Windows session-local named mutex. A second instance exits before terminal setup or configuration access.
 2. The first instance installs the console control handler, resolves the real executable and its adjacent configuration, migrates a launcher-adjacent configuration when required, and enters raw mode and the alternate screen.
-3. Investigation startup state is resolved before the first sample. Tracking intent and other identity-independent settings apply immediately. `App::new` then performs one synchronous initial collection and resolves saved Graph templates against that snapshot, assigning new runtime identities and Graph IDs.
+3. Investigation startup state is resolved before the first sample so the selected Tracking List applies to the initial capture. Application-wide presentation preferences load independently. `App::new` then performs one synchronous initial collection with an empty Graph workspace.
 4. `SamplingWorker` handles subsequent samples while `run_tui` uses the same terminal session.
 5. After the loop returns, `main` restores the terminal and saves session configuration only when the run succeeded.
 
@@ -122,7 +122,7 @@ The collection boundary deliberately produces one aggregate `Snapshot`. Explicit
 
 - sampling progress, current Live data, freshness, and warnings;
 - process-table selection, filtering, sorting, columns, and visible-row caches;
-- Current Investigation, named Investigation Profiles, tracking intent, histories, and exited rows;
+- Current Investigation, Tracking-List-only Investigation Profiles, tracking intent, histories, and exited rows;
 - ordered Graphs and shared comparison state;
 - modal and asynchronous investigation sessions;
 - display pause, Recording, Log list, and Log view;
