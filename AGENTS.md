@@ -34,6 +34,7 @@ If the specifications and implementation conflict, inspect the implementation fi
 - Local-only work that changes only ignored paths such as `notes/` or `logs/` does not require an agent branch or commit.
 - Existing uncommitted changes may be user work. Do not revert changes you did not make.
 - Keep changes as small as practical. Avoid opportunistic large refactors and unrelated formatting churn.
+- Do not include maintainer-specific absolute filesystem paths or usernames in Git-managed documentation, public Issue bodies, commit messages, or other publishable text. Use repository-relative paths or role-based placeholders such as `<main-worktree>` and `<worktree-root>`.
 - Keep maintained specifications under `docs/` in English.
 - Keep Japanese documentation limited to `README.ja.md` unless the user explicitly asks otherwise.
 - In `README.ja.md`, prefer natural, readable Japanese over literal translation or unnecessary English mixing.
@@ -78,12 +79,27 @@ These branch / commit / push rules apply to AI agents. The maintainer usually in
 - If the human gives a branch name, use the human-specified name instead of inventing one.
 - Use `agent/YYYYMMDD-HHMM` only as a fallback when there is no clear topic name or when the human explicitly asks for a timestamp-only branch.
 - AI agents must not commit to `main` unless the user explicitly instructs them to do so.
-- Create the agent branch from the current working branch unless the user explicitly asks to start from another branch.
+- Create an independent agent branch from the current local `main`. Start from another branch only when the user explicitly names that base or when the task explicitly continues an existing agent branch.
 - If the task only creates or updates ignored local-only files such as `notes/` or `logs/`, stay on the current branch and do not create an agent branch.
 - Humans may review one or more AI commits together, ask for fixes on the same agent branch, then squash merge to `main` with one English summary commit.
-- Delete the agent branch immediately after its work has been squash merged to `main`, or when the user decides to discard it.
+- After an agent branch has been squash merged to `main`, remove its completed clean worktree and delete the branch immediately. Apply the same verified cleanup when the user decides to discard the work.
 - Do not force-push or rewrite published `main`.
 - AI agents must not push `main` unless the user explicitly asks to push.
+
+## Worktree Workflow Rules
+
+- Keep the canonical `main` worktree in the repository's primary checkout directory. Treat its concrete absolute path as local environment state rather than publishable documentation content.
+- Place manually managed linked worktrees under a sibling `<worktree-root>\<issue-or-topic>` directory outside the repository worktree. Because this path is outside the main worktree, it does not require a `.gitignore` entry.
+- Do not create manually managed worktrees under `notes/`, `target/`, or another subdirectory of a repository worktree. Nested worktrees can be affected by repository cleanup and make recursive searches and status inspection ambiguous.
+- Before creating a worktree, confirm the exact Issue or topic, branch name, target path, current `git worktree list`, and intended base commit. The target path and branch must not already be assigned to another worktree.
+- Use an attached `agent/<short-topic>` branch for tracked implementation work. Detached worktrees are limited to read-only inspection or temporary verification and must not become the only location of uncommitted implementation work.
+- When Issues overlap in shared state, input handling, layout, or other semantic ownership, use one active implementation worktree at a time. Parallel worktrees do not make semantically conflicting changes independent.
+- Treat Codex-managed worktrees separately from manually managed worktrees. Confirm the owning task before moving or removing one manually.
+- Before removing a worktree, confirm its exact path, branch or detached HEAD, status, and ownership. Preserve tracked and untracked work unless the user explicitly asks to discard it.
+- Remove a completed clean worktree before deleting its branch. Do not use `git worktree remove --force` for routine cleanup. After squash integration, force-delete the source branch only after proving that it has no intended content missing from `main`.
+- Use `git worktree prune` only for stale administrative entries after checking `git worktree prune --dry-run`; it is not a substitute for reviewing and removing a live worktree.
+- If Windows locks a worktree after validation or commit, inspect the exact process and wait for Git maintenance or repack to finish naturally. Do not kill Terminal or unrelated user processes.
+- If the existing checkout does not match this layout, do not relocate or remove dirty worktrees merely to enforce the policy. Report the mismatch and obtain approval for the exact migration.
 
 ## Main Integration Rules
 
@@ -93,12 +109,12 @@ These rules apply when the user asks an AI agent to integrate a completed agent 
 - Prefer squash-merging completed agent branch work into `main` as one coherent English Conventional Commit.
 - When the squash merge corresponds to a GitHub Issue, append the issue number to the commit title as `(Issue #n)`, for example `fix: place graph a/b labels on x-axis (Issue #3)`, so `git log --oneline` remains easy to scan without confusing the Issue number with a PR number.
 - If the work completes a GitHub Issue, include `Closes #n` in the commit body. Use `Refs #n` instead if the Issue should remain open.
-- A typical local integration sequence is:
+- A typical local integration sequence, run against the canonical `main` worktree, is:
 
 ```powershell
-git switch main
-git merge --squash agent/<short-topic>
-git commit -m "<message> (Issue #n)" -m "Closes #n"
+git -C <main-worktree> status --short --branch
+git -C <main-worktree> merge --squash agent/<short-topic>
+git -C <main-worktree> commit -m "<message> (Issue #n)" -m "Closes #n"
 ```
 
 - Pushing `main` is normally performed by the user. AI agents must not run `git push origin main` unless the user explicitly asks them to push.
