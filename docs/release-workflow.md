@@ -220,7 +220,7 @@ The package name includes:
 
 `LICENSE` is a distribution notice rather than product documentation and remains beside the binary. `README.md`, `README.ja.md`, `assets/`, and `docs/` are not packaged.
 
-`winproc-tui.toml` is also not prepackaged. It is user-specific session state: the application starts with defaults when the file is absent, then creates or updates it next to `winproc-tui.exe` after a successful run. The helper stops with an error unless the archive contains exactly the executable and `LICENSE`.
+`winproc-tui.toml` is also not prepackaged. It is user-specific session state: the application resolves command links and filesystem aliases to the real `winproc-tui.exe`, starts with defaults when no adjacent configuration exists, then creates or updates the file beside that real executable after a successful run. When upgrading from the older path behavior, a launcher-adjacent configuration is moved to the real executable directory if that directory does not already contain one. The helper stops with an error unless the archive contains exactly the executable and `LICENSE`.
 
 ### 7. Verify the Checksum File
 
@@ -289,7 +289,7 @@ Open the draft release in GitHub and confirm:
 - The GitHub-displayed `sha256:` digest for the `.zip` asset matches the generated checksum.
 - The `.zip` file contains exactly `winproc-tui.exe` and `LICENSE`.
 - The `.zip` file does not contain README files, `assets/`, `docs/`, or a preset `winproc-tui.toml`.
-- A clean extraction starts with default settings; after a successful run, `winproc-tui.toml` is created next to the executable.
+- A clean extraction starts with default settings; after a successful run, `winproc-tui.toml` is created next to the real executable.
 - The release page does not point users to third-party binaries or mirrors as official builds.
 - The executable starts successfully on Windows 11 x64.
 

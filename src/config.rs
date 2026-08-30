@@ -307,12 +307,92 @@ pub(crate) struct RuntimeConfig {
     pub(crate) sampling_options: SamplingOptions,
 }
 
-pub(crate) fn resolve_config_path() -> Result<PathBuf> {
-    let exe = std::env::current_exe().context("failed to resolve executable path")?;
-    let exe_dir = exe
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigPaths {
+    pub(crate) active: PathBuf,
+    pub(crate) legacy: Option<PathBuf>,
+}
+
+pub(crate) fn resolve_config_paths() -> Result<ConfigPaths> {
+    let launched_exe = std::env::current_exe().context("failed to resolve executable path")?;
+    resolve_config_paths_from_executable(&launched_exe)
+}
+
+pub(crate) fn resolve_config_paths_from_executable(launched_exe: &Path) -> Result<ConfigPaths> {
+    let real_exe = fs::canonicalize(launched_exe).with_context(|| {
+        format!(
+            "failed to resolve real executable path {}",
+            launched_exe.display()
+        )
+    })?;
+    let launched_dir = launched_exe
         .parent()
         .context("failed to resolve executable directory")?;
-    Ok(exe_dir.join(CONFIG_FILE_NAME))
+    let real_dir = real_exe
+        .parent()
+        .context("failed to resolve real executable directory")?;
+    let resolved_launched_dir = fs::canonicalize(launched_dir).with_context(|| {
+        format!(
+            "failed to resolve executable directory {}",
+            launched_dir.display()
+        )
+    })?;
+
+    Ok(config_paths_from_resolved_dirs(
+        launched_dir,
+        &resolved_launched_dir,
+        real_dir,
+    ))
+}
+
+pub(crate) fn config_paths_from_resolved_dirs(
+    launched_dir: &Path,
+    resolved_launched_dir: &Path,
+    real_dir: &Path,
+) -> ConfigPaths {
+    ConfigPaths {
+        active: real_dir.join(CONFIG_FILE_NAME),
+        legacy: (resolved_launched_dir != real_dir).then(|| launched_dir.join(CONFIG_FILE_NAME)),
+    }
+}
+
+pub(crate) fn migrate_legacy_config(paths: &ConfigPaths) -> Result<()> {
+    let Some(legacy_path) = paths.legacy.as_deref() else {
+        return Ok(());
+    };
+    if paths.active.exists() || !legacy_path.exists() {
+        return Ok(());
+    }
+
+    match fs::rename(legacy_path, &paths.active) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+            fs::copy(legacy_path, &paths.active).with_context(|| {
+                format!(
+                    "failed to copy legacy config {} to {}",
+                    legacy_path.display(),
+                    paths.active.display()
+                )
+            })?;
+            if let Err(error) = fs::remove_file(legacy_path) {
+                let _ = fs::remove_file(&paths.active);
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to remove migrated legacy config {}",
+                        legacy_path.display()
+                    )
+                });
+            }
+            Ok(())
+        }
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "failed to move legacy config {} to {}",
+                legacy_path.display(),
+                paths.active.display()
+            )
+        }),
+    }
 }
 
 pub(crate) fn load_config(path: &Path) -> Result<AppConfig> {

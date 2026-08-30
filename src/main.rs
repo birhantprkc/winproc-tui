@@ -21,7 +21,10 @@ mod ui;
 pub(crate) use app::App;
 use app::run_tui;
 use cli::Cli;
-use config::{build_runtime_config, load_config, resolve_config_path, write_app_config};
+use config::{
+    build_runtime_config, load_config, migrate_legacy_config, resolve_config_paths,
+    write_app_config,
+};
 
 fn main() -> Result<()> {
     Cli::parse();
@@ -30,7 +33,9 @@ fn main() -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("winproc-tui is already running"))?;
     platform::install_console_control_handler()
         .context("failed to install console control handler")?;
-    let config_path = resolve_config_path()?;
+    let config_paths = resolve_config_paths()?;
+    migrate_legacy_config(&config_paths)?;
+    let config_path = config_paths.active;
 
     let result = (|| {
         let config = load_config(&config_path)?;

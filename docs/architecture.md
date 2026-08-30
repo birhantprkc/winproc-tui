@@ -80,14 +80,14 @@ Display pause freezes only the visible state. Sampling, histories, freshness, an
 
 ### 3.5 Preserve recoverable session data
 
-Configuration is replaced only after a successful interactive run, while startup-setting and explicit Investigation Profile operations persist immediately. Recording uses appendable JSON Lines and preserves partial files after interruption or failure. Detailed persistence and lifecycle rules are defined by the relevant feature documents.
+Configuration is stored beside the real executable after resolving command links and filesystem aliases. If an older launcher-adjacent configuration exists and the real executable has no configuration yet, startup moves the existing file to the real executable directory before loading it. Configuration content is replaced only after a successful interactive run, while startup-setting and explicit Investigation Profile operations persist immediately. Recording uses appendable JSON Lines and preserves partial files after interruption or failure. Detailed persistence and lifecycle rules are defined by the relevant feature documents.
 
 ## 4. Runtime Flow
 
 ### 4.1 Startup and shutdown
 
 1. `main` parses the CLI and acquires a Windows session-local named mutex. A second instance exits before terminal setup or configuration access.
-2. The first instance installs the console control handler, resolves configuration, and enters raw mode and the alternate screen.
+2. The first instance installs the console control handler, resolves the real executable and its adjacent configuration, migrates a launcher-adjacent configuration when required, and enters raw mode and the alternate screen.
 3. Investigation startup state is resolved before the first sample. Tracking intent and other identity-independent settings apply immediately. `App::new` then performs one synchronous initial collection and resolves saved Graph templates against that snapshot, assigning new runtime identities and Graph IDs.
 4. `SamplingWorker` handles subsequent samples while `run_tui` uses the same terminal session.
 5. After the loop returns, `main` restores the terminal and saves session configuration only when the run succeeded.

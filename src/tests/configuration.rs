@@ -5,11 +5,108 @@ use crate::app::{
 };
 use crate::cli::Cli;
 use crate::config;
-use crate::config::{AppConfig, build_runtime_config, load_config, write_app_config};
+use crate::config::{
+    AppConfig, ConfigPaths, build_runtime_config, load_config, migrate_legacy_config,
+    write_app_config,
+};
 use crate::model::{ColumnPreset, MetricColumn, SortColumn, SortDirection, SortSpec};
 use crate::with_terminal_session;
 use clap::Parser;
 use std::time::Duration;
+
+#[test]
+fn config_path_uses_real_executable_directory() {
+    let launched_dir = std::path::Path::new(r"C:\Users\user\AppData\Local\Microsoft\WinGet\Links");
+    let real_dir = std::path::Path::new(
+        r"C:\Users\user\AppData\Local\Microsoft\WinGet\Packages\TX230.winproc-tui\",
+    );
+
+    let paths = config::config_paths_from_resolved_dirs(launched_dir, launched_dir, real_dir);
+
+    assert_eq!(paths.active, real_dir.join("winproc-tui.toml"));
+    assert_eq!(paths.legacy, Some(launched_dir.join("winproc-tui.toml")));
+}
+
+#[test]
+fn config_path_has_no_legacy_location_for_direct_executable() {
+    let real_dir = std::path::Path::new(r"C:\tools\winproc-tui");
+
+    let paths = config::config_paths_from_resolved_dirs(real_dir, real_dir, real_dir);
+
+    assert_eq!(paths.active, real_dir.join("winproc-tui.toml"));
+    assert_eq!(paths.legacy, None);
+}
+
+#[test]
+fn config_path_follows_executable_symbolic_link() {
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join(format!(
+            "winproc-tui-test-config-symlink-{}",
+            std::process::id()
+        ));
+    let launcher_dir = root.join("launcher");
+    let real_dir = root.join("real");
+    let launcher_exe = launcher_dir.join("winproc-tui.exe");
+    let real_exe = real_dir.join("winproc-tui.exe");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&launcher_dir).unwrap();
+    std::fs::create_dir_all(&real_dir).unwrap();
+    std::fs::write(&real_exe, b"test executable").unwrap();
+    if let Err(error) = std::os::windows::fs::symlink_file(&real_exe, &launcher_exe) {
+        std::fs::remove_dir_all(root).unwrap();
+        if error.raw_os_error() == Some(1314) {
+            return;
+        }
+        panic!("failed to create executable symlink: {error}");
+    }
+
+    let paths = config::resolve_config_paths_from_executable(&launcher_exe).unwrap();
+    let canonical_real_dir = std::fs::canonicalize(&real_dir).unwrap();
+
+    assert_eq!(paths.active, canonical_real_dir.join("winproc-tui.toml"));
+    assert_eq!(paths.legacy, Some(launcher_dir.join("winproc-tui.toml")));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn legacy_launcher_config_moves_to_real_executable_directory() {
+    let legacy = unique_config_path("launcher-config");
+    let active = unique_config_path("real-executable-config");
+    let content = "[general]\nmouse = false\n";
+    std::fs::write(&legacy, content).unwrap();
+    let _ = std::fs::remove_file(&active);
+    let paths = ConfigPaths {
+        active: active.clone(),
+        legacy: Some(legacy.clone()),
+    };
+
+    migrate_legacy_config(&paths).unwrap();
+
+    assert_eq!(std::fs::read_to_string(&active).unwrap(), content);
+    assert!(!legacy.exists());
+    std::fs::remove_file(active).unwrap();
+}
+
+#[test]
+fn real_executable_config_wins_when_both_locations_exist() {
+    let legacy = unique_config_path("launcher-config-existing-target");
+    let active = unique_config_path("real-config-existing-target");
+    std::fs::write(&legacy, "legacy").unwrap();
+    std::fs::write(&active, "active").unwrap();
+    let paths = ConfigPaths {
+        active: active.clone(),
+        legacy: Some(legacy.clone()),
+    };
+
+    migrate_legacy_config(&paths).unwrap();
+
+    assert_eq!(std::fs::read_to_string(&active).unwrap(), "active");
+    assert_eq!(std::fs::read_to_string(&legacy).unwrap(), "legacy");
+    std::fs::remove_file(active).unwrap();
+    std::fs::remove_file(legacy).unwrap();
+}
 
 #[test]
 fn terminal_session_does_not_restore_between_startup_and_main() {

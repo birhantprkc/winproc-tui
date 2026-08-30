@@ -38,7 +38,7 @@ If the specifications and implementation conflict, inspect the implementation fi
 - Keep maintained specifications under `docs/` in English.
 - Keep Japanese documentation limited to `README.ja.md` unless the user explicitly asks otherwise.
 - In `README.ja.md`, prefer natural, readable Japanese over literal translation or unnecessary English mixing.
-- The GitHub Release zip is runtime-only. Package `winproc-tui.exe` and the `LICENSE` distribution notice, but do not package README files, `assets/`, `docs/`, or a preset `winproc-tui.toml`. The application creates or updates its user-specific config next to the executable after a successful run.
+- The GitHub Release zip is runtime-only. Package `winproc-tui.exe` and the `LICENSE` distribution notice, but do not package README files, `assets/`, `docs/`, or a preset `winproc-tui.toml`. The application creates or updates its user-specific config next to the real executable after a successful run.
 - Release builds for `x86_64-pc-windows-msvc` must statically link the Microsoft C runtime. Do not package or publish an executable that imports runtime DLLs such as `VCRUNTIME140.dll` or `api-ms-win-crt-*.dll`.
 
 ## Documentation Workflow
@@ -149,7 +149,7 @@ git -C <main-worktree> commit -m "<message> (Issue #n)" -m "Closes #n"
 - When adding a metric, check at least `model::columns`, `model::snapshot` / `process`, `samplers`, `ui::format`, display tables, Details, and recording logs.
 - `CPU%` is a percentage of total logical CPU capacity. Read PDH `\Process(*)\% Processor Time` with `PDH_FMT_NOCAP100`, then divide by the logical CPU count.
 - Unavailable values should generally be displayed as `--` in the UI and omitted from recording logs rather than written as `null`.
-- The config file is `winproc-tui.toml`. It saves session state on exit and restores it on the next launch.
+- The config file is `winproc-tui.toml`. Resolve command links and filesystem aliases before selecting its location beside the real executable. If an older launcher-adjacent config exists and the real executable has none, move the old file before loading it. It saves session state on exit and restores it on the next launch.
 - Do not save Filter input state to the config file.
 - Treat `tracked_only` as an independent state. Do not infer it from whether the Tracking List is non-empty.
 - Treat the Tracking List as a field of the mutable Current Investigation, not as an independently named object. Investigation Profiles are the only named reusable definitions and change only through explicit Save, Save As, Rename, or Delete actions.
