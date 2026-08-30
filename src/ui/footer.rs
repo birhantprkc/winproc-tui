@@ -30,6 +30,7 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
         FocusedPanel::System => vec![
             ("←/→", "Column/Adapter"),
             ("Space", "Graph"),
+            ("g", "Graphs"),
             ("Ctrl+C", "Copy"),
             ("i", "System info"),
         ],

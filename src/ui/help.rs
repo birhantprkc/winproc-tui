@@ -199,6 +199,10 @@ const RAM_VRAM_ROWS: &[HelpItem] = &[
         key: "Space",
         label: "Toggle selected metric Graph",
     },
+    HelpItem {
+        key: "g",
+        label: "Toggle Graphs panel",
+    },
 ];
 
 const SYSTEM_ACTIVITY_ROWS: &[HelpItem] = &[

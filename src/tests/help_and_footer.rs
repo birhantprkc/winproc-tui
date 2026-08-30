@@ -442,6 +442,7 @@ fn footer_shortcuts_follow_the_focused_panel() {
     app.focused_panel = FocusedPanel::System;
     let system = render_app_to_text(&app, 170, 30);
     assert!(system.contains("i System info"), "{system}");
+    assert!(system.contains("g Graphs"), "{system}");
     assert!(!system.contains("m/g MEM/GPU"), "{system}");
     assert!(!system.contains("Up/Down Metric"), "{system}");
     assert!(!system.contains("Left/Right Column"), "{system}");

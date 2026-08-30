@@ -1002,10 +1002,6 @@ impl App {
                     self.select_resource_panel(crate::app::ResourcePanel::Memory);
                     return Ok(());
                 }
-                KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'g') => {
-                    self.select_resource_panel(crate::app::ResourcePanel::Gpu);
-                    return Ok(());
-                }
                 KeyCode::Up => {
                     self.select_previous_system_metric();
                     self.apply_selected_system_metric_to_visible_details();

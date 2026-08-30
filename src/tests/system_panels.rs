@@ -87,6 +87,37 @@ fn ram_vram_space_toggles_selected_graph() {
 }
 
 #[test]
+fn mem_and_gpu_g_toggle_graphs_without_switching_resource_panel() {
+    let mut app = make_test_app(3, 10);
+    app.focused_panel = FocusedPanel::System;
+    app.resource_panel = app::ResourcePanel::Memory;
+    app.on_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE))
+        .unwrap();
+    assert!(app.show_details);
+
+    app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+        .unwrap();
+    assert!(!app.show_details);
+    assert_eq!(app.resource_panel, app::ResourcePanel::Memory);
+
+    app.on_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT))
+        .unwrap();
+    assert!(app.show_details);
+    assert_eq!(app.resource_panel, app::ResourcePanel::Memory);
+
+    app.select_resource_panel(app::ResourcePanel::Gpu);
+    app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+        .unwrap();
+    assert!(!app.show_details);
+    assert_eq!(app.resource_panel, app::ResourcePanel::Gpu);
+
+    app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+        .unwrap();
+    assert!(app.show_details);
+    assert_eq!(app.resource_panel, app::ResourcePanel::Gpu);
+}
+
+#[test]
 fn ram_vram_active_graph_colors_the_value_without_a_slot_ordinal() {
     let mut app = make_test_app(3, 10);
     app.focused_panel = FocusedPanel::System;
