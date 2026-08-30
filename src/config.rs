@@ -54,7 +54,7 @@ impl Default for GeneralConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct GraphConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,19 +69,7 @@ pub(crate) struct GraphConfig {
     pub(crate) y_axis_zero_min: Option<bool>,
 }
 
-impl Default for GraphConfig {
-    fn default() -> Self {
-        Self {
-            columns: None,
-            time_span_seconds: None,
-            samples: None,
-            delta: None,
-            y_axis_zero_min: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct ProcessTableConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,21 +87,6 @@ pub(crate) struct ProcessTableConfig {
     pub(crate) body_rows: ProcessPanelHeightConfig,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) column_widths: BTreeMap<String, i64>,
-}
-
-impl Default for ProcessTableConfig {
-    fn default() -> Self {
-        Self {
-            view: None,
-            preset: None,
-            columns: None,
-            sort_by: None,
-            sort_order: None,
-            tracked_only: None,
-            body_rows: ProcessPanelHeightConfig::default(),
-            column_widths: BTreeMap::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,7 +175,7 @@ pub(crate) struct SavedTrackedList {
     pub(crate) processes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct InvestigationStateConfig {
     pub(crate) tracked_names: Vec<String>,
@@ -230,26 +203,6 @@ pub(crate) struct InvestigationStateConfig {
     pub(crate) y_axis_zero_min: Option<bool>,
     #[serde(skip_serializing)]
     pub(crate) recording_interval_seconds: Option<u64>,
-}
-
-impl Default for InvestigationStateConfig {
-    fn default() -> Self {
-        Self {
-            tracked_names: Vec::new(),
-            tracked_only: None,
-            process_view: None,
-            process_columns: None,
-            sort_by: None,
-            sort_order: None,
-            graphs: Vec::new(),
-            graph_columns: None,
-            graph_time_span_seconds: None,
-            samples: None,
-            delta: None,
-            y_axis_zero_min: None,
-            recording_interval_seconds: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
