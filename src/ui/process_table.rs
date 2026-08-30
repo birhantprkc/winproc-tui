@@ -15,7 +15,7 @@ use crate::{
     ui::{
         Theme,
         format::{format_compact_bytes, format_integer, format_kb_per_sec},
-        graph_slot::graph_value_style,
+        graph_slot::graph_value_spans,
         layout::ProcessTableLayout,
         widgets::block::panel_block_focused,
     },
@@ -513,13 +513,13 @@ fn process_metric_cell(
     text_style: Style,
     theme: Theme,
 ) -> Cell<'static> {
-    let value_style = graph_value_style(text_style, graph_state, theme);
     let mut cell = Cell::from(process_metric_line(
         process,
         column,
         column_width,
         app,
-        value_style,
+        graph_state,
+        text_style,
         theme,
     ));
     if selected_cell {
@@ -558,6 +558,7 @@ fn process_metric_line(
     column: MetricColumn,
     column_width: u16,
     app: &App,
+    graph_state: Option<GraphSourceState>,
     text_style: Style,
     theme: Theme,
 ) -> Line<'static> {
@@ -571,7 +572,7 @@ fn process_metric_line(
             None => Line::from(Span::styled(value, text_style)),
         }
     } else {
-        Line::from(Span::styled(value, text_style))
+        Line::from(graph_value_spans(value, text_style, graph_state, theme))
     };
     line.alignment(process_metric_alignment(column))
 }
@@ -1248,6 +1249,7 @@ fn format_cpu_percent(value: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::graph_slot::graph_value_style;
     use ratatui::style::Styled;
 
     #[test]
@@ -1419,7 +1421,7 @@ mod tests {
     }
 
     #[test]
-    fn graphed_process_values_use_green_with_bold_reserved_for_the_active_graph() {
+    fn graphed_process_values_use_underlining_with_bold_reserved_for_the_active_graph() {
         for theme in crate::ui::THEMES {
             let inactive = graph_value_style(
                 Style::default(),
@@ -1439,8 +1441,10 @@ mod tests {
             );
 
             assert_eq!(inactive.fg, Some(theme.active_series));
+            assert!(inactive.add_modifier.contains(Modifier::UNDERLINED));
             assert!(!inactive.add_modifier.contains(Modifier::BOLD));
             assert_eq!(active.fg, Some(theme.active_series));
+            assert!(active.add_modifier.contains(Modifier::UNDERLINED));
             assert!(active.add_modifier.contains(Modifier::BOLD));
         }
     }

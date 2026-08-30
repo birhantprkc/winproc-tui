@@ -332,6 +332,79 @@ fn cpu_inactive_graph_colors_the_value_without_bold_or_an_ordinal() {
 }
 
 #[test]
+fn cpu_graph_values_style_percent_missing_and_count_tokens_in_all_themes() {
+    let screen = Rect::new(0, 0, 180, 45);
+    for (theme_index, theme) in ui::THEMES.iter().copied().enumerate() {
+        let mut app = make_test_app(3, 10);
+        app.theme_index = theme_index;
+        app.snapshot.cpu_total_usage_percent = Some(42);
+        app.snapshot.thread_count = None;
+
+        let usage = GraphSlot::system(SystemMetric::CpuAverage);
+        for slot in [
+            usage.clone(),
+            GraphSlot::system(SystemMetric::ThreadCount),
+            GraphSlot::system(SystemMetric::ProcessCount),
+        ] {
+            assert!(app.add_or_reveal_graph_source(slot, FocusedPanel::Cpu));
+        }
+        let usage_id = app
+            .graph_entries
+            .iter()
+            .find(|entry| entry.source == usage)
+            .unwrap()
+            .id;
+        assert!(app.set_active_graph(usage_id));
+        app.show_details = false;
+        app.focused_panel = FocusedPanel::Cpu;
+
+        let area = ui::cpu_panel_area_for_screen(screen, &app);
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (usage_x, usage_y) = find_text_position_in_area(&buffer, area, "42%").unwrap();
+        for offset in 0..3 {
+            let cell = &buffer[(usage_x + offset, usage_y)];
+            assert_eq!(cell.fg, theme.active_series);
+            assert_eq!(cell.bg, theme.table_selection_surface);
+            assert!(cell.modifier.contains(Modifier::UNDERLINED));
+            assert!(cell.modifier.contains(Modifier::BOLD));
+        }
+        assert_eq!(buffer[(usage_x - 1, usage_y)].symbol(), " ");
+        assert!(
+            !buffer[(usage_x - 1, usage_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+
+        let (_, threads_y) = find_text_position_in_area(&buffer, area, "Threads").unwrap();
+        let threads_row = Rect::new(area.x, threads_y, area.width, 1);
+        let (missing_x, missing_y) =
+            find_text_position_in_area(&buffer, threads_row, "--").unwrap();
+        for offset in 0..2 {
+            let cell = &buffer[(missing_x + offset, missing_y)];
+            assert_eq!(cell.fg, theme.active_series);
+            assert_eq!(cell.bg, theme.panel);
+            assert!(cell.modifier.contains(Modifier::UNDERLINED));
+            assert!(!cell.modifier.contains(Modifier::BOLD));
+        }
+        assert_eq!(buffer[(missing_x - 1, missing_y)].symbol(), " ");
+        assert!(
+            !buffer[(missing_x - 1, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+
+        let (_, processes_y) = find_text_position_in_area(&buffer, area, "Processes").unwrap();
+        let processes_row = Rect::new(area.x, processes_y, area.width, 1);
+        let (count_x, count_y) = find_text_position_in_area(&buffer, processes_row, "3").unwrap();
+        let count = &buffer[(count_x, count_y)];
+        assert_eq!(count.fg, theme.active_series);
+        assert_eq!(count.bg, theme.panel);
+        assert!(count.modifier.contains(Modifier::UNDERLINED));
+        assert!(!count.modifier.contains(Modifier::BOLD));
+    }
+}
+
+#[test]
 fn clicking_cpu_panel_moves_focus_to_cpu() {
     let mut app = make_test_app(3, 10);
     let screen = Rect::new(0, 0, 120, 45);

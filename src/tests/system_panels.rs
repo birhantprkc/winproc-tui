@@ -14,7 +14,34 @@ use crate::ui;
 use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::Modifier;
+use ratatui::style::{Color, Modifier};
+
+fn assert_registered_value_token(
+    buffer: &ratatui::buffer::Buffer,
+    area: Rect,
+    token: &str,
+    theme: ui::Theme,
+    bold: bool,
+    background: Color,
+) -> (u16, u16) {
+    let (x, y) = find_text_position_in_area(buffer, area, token)
+        .unwrap_or_else(|| panic!("registered value should render: {token}"));
+    for offset in 0..token.chars().count() as u16 {
+        let cell = &buffer[(x + offset, y)];
+        assert_eq!(cell.fg, theme.active_series, "token: {token}");
+        assert_eq!(cell.bg, background, "token: {token}");
+        assert!(
+            cell.modifier.contains(Modifier::UNDERLINED),
+            "token: {token}"
+        );
+        assert_eq!(
+            cell.modifier.contains(Modifier::BOLD),
+            bold,
+            "token: {token}"
+        );
+    }
+    (x, y)
+}
 
 #[test]
 fn clicking_system_activity_panel_moves_focus_to_system_activity() {
@@ -280,6 +307,165 @@ fn gpu_active_graph_colors_the_value_without_a_slot_ordinal() {
     assert_eq!(value.fg, app.theme().active_series);
     assert!(value.modifier.contains(Modifier::BOLD));
     assert!(find_text_position_in_area(&buffer, area, "1  Usage").is_none());
+}
+
+#[test]
+fn compact_system_graph_values_style_only_tokens_in_all_themes() {
+    let screen = Rect::new(0, 0, 180, 30);
+    for (theme_index, theme) in ui::THEMES.iter().copied().enumerate() {
+        let mut app = make_test_app(3, 10);
+        app.theme_index = theme_index;
+        app.snapshot.modified_memory = Some(424_000_000);
+        app.snapshot.pages_input_per_sec = None;
+        app.snapshot.network_received_bytes_per_sec = Some(30_000_000);
+        app.snapshot.disk_read_bytes_per_sec = None;
+        app.snapshot.disk_queue_length = Some(1.5);
+        let adapter = model::GpuAdapterSample {
+            name: Some("Test GPU".to_string()),
+            utilization_percent: Some(56.0),
+            encode: model::GpuEngineSummary::default(),
+            ..model::GpuAdapterSample::default()
+        };
+        let gpu_usage = GraphSlot::gpu(
+            adapter.id,
+            adapter.name.as_deref().unwrap(),
+            SystemMetric::GpuUtilization,
+        );
+        let gpu_encode = GraphSlot::gpu(
+            adapter.id,
+            adapter.name.as_deref().unwrap(),
+            SystemMetric::GpuEncode,
+        );
+        app.snapshot.gpu_adapters.push(adapter);
+
+        for slot in [
+            GraphSlot::system(SystemMetric::ModifiedMemory),
+            GraphSlot::system(SystemMetric::PagesInput),
+            gpu_usage.clone(),
+            gpu_encode,
+            GraphSlot::system(SystemMetric::NetworkReceived),
+            GraphSlot::system(SystemMetric::DiskRead),
+            GraphSlot::system(SystemMetric::DiskQueueLength),
+        ] {
+            assert!(app.add_or_reveal_graph_source(slot, FocusedPanel::System));
+        }
+        let gpu_usage_id = app
+            .graph_entries
+            .iter()
+            .find(|entry| entry.source == gpu_usage)
+            .unwrap()
+            .id;
+        assert!(app.set_active_graph(gpu_usage_id));
+        app.show_details = false;
+
+        app.focused_panel = FocusedPanel::System;
+        app.resource_panel = app::ResourcePanel::Memory;
+        app.ram_vram_selected_index = 1;
+        let memory_area = ui::ram_vram_panel_area_for_screen(screen, &app);
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        assert_registered_value_token(
+            &buffer,
+            memory_area,
+            "424 MB",
+            theme,
+            false,
+            theme.table_selection_surface,
+        );
+        let (pages_in_x, pages_in_y) =
+            find_text_position_in_area(&buffer, memory_area, "Pages In/s").unwrap();
+        let pages_in_row = Rect::new(
+            pages_in_x,
+            pages_in_y,
+            memory_area.right().saturating_sub(pages_in_x),
+            1,
+        );
+        let (missing_x, missing_y) =
+            assert_registered_value_token(&buffer, pages_in_row, "--", theme, false, theme.panel);
+        assert!(
+            !buffer[(missing_x - 1, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+
+        app.resource_panel = app::ResourcePanel::Gpu;
+        app.ram_vram_selected_index = 0;
+        let gpu_area = ui::gpu_panel_area_for_screen(screen, &app);
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (usage_x, usage_y) = assert_registered_value_token(
+            &buffer,
+            gpu_area,
+            "56%",
+            theme,
+            true,
+            theme.table_selection_surface,
+        );
+        assert_eq!(buffer[(usage_x - 1, usage_y)].symbol(), " ");
+        assert!(
+            !buffer[(usage_x - 1, usage_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        let (_, encode_y) = find_text_position_in_area(&buffer, gpu_area, "Encode").unwrap();
+        let encode_row = Rect::new(gpu_area.x, encode_y, gpu_area.width, 1);
+        let (missing_x, missing_y) =
+            assert_registered_value_token(&buffer, encode_row, "--", theme, false, theme.panel);
+        assert_eq!(buffer[(missing_x - 1, missing_y)].symbol(), " ");
+        assert!(
+            !buffer[(missing_x - 1, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+
+        app.focused_panel = FocusedPanel::SystemActivity;
+        app.system_activity_selected_index = 0;
+        let activity_area = ui::system_activity_panel_area_for_screen(screen, &app);
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (rate_x, rate_y) = assert_registered_value_token(
+            &buffer,
+            activity_area,
+            "240 Mbps",
+            theme,
+            false,
+            theme.table_selection_surface,
+        );
+        assert_eq!(buffer[(rate_x - 1, rate_y)].symbol(), " ");
+        assert!(
+            !buffer[(rate_x - 1, rate_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        let (_, disk_read_y) =
+            find_text_position_in_area(&buffer, activity_area, "Disk R").unwrap();
+        let disk_read_row = Rect::new(activity_area.x, disk_read_y, activity_area.width, 1);
+        let (missing_x, missing_y) =
+            assert_registered_value_token(&buffer, disk_read_row, "--", theme, false, theme.panel);
+        assert_eq!(buffer[(missing_x - 1, missing_y)].symbol(), " ");
+        assert!(
+            !buffer[(missing_x - 1, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        let (_, disk_queue_y) =
+            find_text_position_in_area(&buffer, activity_area, "Disk Q").unwrap();
+        let disk_queue_row = Rect::new(activity_area.x, disk_queue_y, activity_area.width, 1);
+        let queue_prefix = find_text_position_in_area(&buffer, disk_queue_row, "   2")
+            .expect("registered queue length should render");
+        let queue_x = queue_prefix.0 + 3;
+        assert_registered_value_token(
+            &buffer,
+            Rect::new(queue_x, queue_prefix.1, 1, 1),
+            "2",
+            theme,
+            false,
+            theme.panel,
+        );
+        assert!((queue_prefix.0..queue_x).all(|x| {
+            buffer[(x, queue_prefix.1)].symbol() == " "
+                && !buffer[(x, queue_prefix.1)]
+                    .modifier
+                    .contains(Modifier::UNDERLINED)
+        }));
+    }
 }
 
 #[test]

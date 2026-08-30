@@ -10,7 +10,7 @@ use crate::{
     app::{FocusedPanel, GraphSlot, GraphSourceState},
     model::{CpuCoreKind, Snapshot, SystemMetric},
     ui::{
-        Theme, format::format_integer, graph_slot::graph_value_style,
+        Theme, format::format_integer, graph_slot::graph_value_spans,
         widgets::block::panel_block_focused,
     },
 };
@@ -116,25 +116,22 @@ pub(crate) fn cpu_per_core_button_area(panel: Rect) -> Option<Rect> {
 }
 
 fn cpu_usage_line(app: &App, snapshot: &Snapshot, theme: Theme) -> Line<'static> {
-    Line::from(vec![
-        metric_label("Usage", theme),
-        Span::styled(
-            format_cpu_average(snapshot.cpu_total_usage_percent),
-            graph_value_style(
-                Style::default().fg(theme.text),
-                cpu_graph_state(app, SystemMetric::CpuAverage),
-                theme,
-            ),
+    let mut spans = vec![metric_label("Usage", theme)];
+    spans.extend(graph_value_spans(
+        format_cpu_average(snapshot.cpu_total_usage_percent),
+        Style::default().fg(theme.text),
+        cpu_graph_state(app, SystemMetric::CpuAverage),
+        theme,
+    ));
+    spans.push(Span::styled(
+        format!(
+            " (U {}, K {})",
+            format_cpu_part(snapshot.cpu_user_usage_percent),
+            format_cpu_part(snapshot.cpu_kernel_usage_percent)
         ),
-        Span::styled(
-            format!(
-                " (U {}, K {})",
-                format_cpu_part(snapshot.cpu_user_usage_percent),
-                format_cpu_part(snapshot.cpu_kernel_usage_percent)
-            ),
-            Style::default().fg(theme.muted),
-        ),
-    ])
+        Style::default().fg(theme.muted),
+    ));
+    Line::from(spans)
 }
 
 fn cpu_frequency_line(snapshot: &Snapshot, theme: Theme) -> Line<'static> {
@@ -182,13 +179,14 @@ fn cpu_count_line(
     graph_state: Option<GraphSourceState>,
     theme: Theme,
 ) -> Line<'static> {
-    Line::from(vec![
-        metric_label(label, theme),
-        Span::styled(
-            value.unwrap_or_else(|| "--".to_string()),
-            graph_value_style(Style::default().fg(theme.text), graph_state, theme),
-        ),
-    ])
+    let mut spans = vec![metric_label(label, theme)];
+    spans.extend(graph_value_spans(
+        value.unwrap_or_else(|| "--".to_string()),
+        Style::default().fg(theme.text),
+        graph_state,
+        theme,
+    ));
+    Line::from(spans)
 }
 
 fn metric_label(label: &str, theme: Theme) -> Span<'static> {

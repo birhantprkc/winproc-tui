@@ -618,13 +618,171 @@ fn process_table_colors_graphed_value_without_a_slot_number_and_keeps_name_plain
     );
 
     assert!((cell_start..value_x).all(|x| buffer[(x, value_y)].symbol() == " "));
+    assert!(
+        (cell_start..value_x)
+            .all(|x| !buffer[(x, value_y)].modifier.contains(Modifier::UNDERLINED))
+    );
     assert_eq!(value_cell.fg, ui::THEMES[0].active_series);
     assert!(value_cell.modifier.contains(Modifier::BOLD));
+    assert!((0..value_width).all(|offset| {
+        buffer[(value_x + offset, value_y)]
+            .modifier
+            .contains(Modifier::UNDERLINED)
+    }));
     assert_ne!(value_cell.bg, ui::THEMES[0].warning);
     assert_eq!(buffer[(name_x, name_y)].fg, ui::THEMES[0].text);
     assert_eq!(tracked_cell.fg, ui::THEMES[0].background);
     assert_eq!(tracked_cell.bg, ui::THEMES[0].tracked);
     assert!(!tracked_cell.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn process_graph_value_registration_styles_survive_table_backgrounds_in_all_themes() {
+    let screen = Rect::new(0, 0, 120, 45);
+    for (theme_index, theme) in ui::THEMES.iter().copied().enumerate() {
+        let mut app = make_test_app(2, 10);
+        app.theme_index = theme_index;
+        app.process_columns = vec![MetricColumn::PrivateBytes];
+        app.snapshot.processes[0].private_bytes = Some(107_374_182_400);
+        app.snapshot.processes[1].private_bytes = None;
+
+        let first = GraphSlot::process(
+            ProcessIdentity::from_row(&app.snapshot.processes[0]),
+            DetailsMetric::Private,
+        );
+        let second = GraphSlot::process(
+            ProcessIdentity::from_row(&app.snapshot.processes[1]),
+            DetailsMetric::Private,
+        );
+        assert!(app.add_or_reveal_graph_source(first, FocusedPanel::Processes));
+        let first_id = app.active_graph_id.unwrap();
+        assert!(app.add_or_reveal_graph_source(second, FocusedPanel::Processes));
+        let second_id = app.active_graph_id.unwrap();
+        assert!(app.set_active_graph(first_id));
+        app.show_details = false;
+        app.selected_process_column_index = 1;
+        app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT))
+            .unwrap();
+
+        let process_area = main_panel_areas_for_app(screen, &app).processes.area;
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (available_x, available_y) =
+            find_text_position_in_area(&buffer, process_area, "107.4 GB").unwrap();
+        let (missing_x, missing_y) =
+            find_text_position_in_area(&buffer, process_area, "--").unwrap();
+        let value_width = "107.4 GB".len() as u16;
+        let column_width = app
+            .process_column_widths
+            .resolved(SortColumn::Metric(MetricColumn::PrivateBytes));
+        let padding_start = available_x.saturating_sub(column_width - value_width);
+
+        assert_eq!(buffer[(available_x, available_y)].fg, theme.active_series);
+        assert_eq!(
+            buffer[(available_x, available_y)].bg,
+            theme.table_multi_selection_surface
+        );
+        assert!(
+            buffer[(available_x, available_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        assert!(
+            buffer[(available_x, available_y)]
+                .modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!((padding_start..available_x).all(|x| {
+            buffer[(x, available_y)].symbol() == " "
+                && !buffer[(x, available_y)]
+                    .modifier
+                    .contains(Modifier::UNDERLINED)
+        }));
+
+        assert_eq!(buffer[(missing_x, missing_y)].fg, theme.active_series);
+        assert_eq!(
+            buffer[(missing_x, missing_y)].bg,
+            theme.table_selection_surface
+        );
+        assert!((0..2).all(|offset| {
+            buffer[(missing_x + offset, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        }));
+        assert!(
+            !buffer[(missing_x, missing_y)]
+                .modifier
+                .contains(Modifier::BOLD)
+        );
+
+        app.selected_process_column_index = 2;
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (missing_x, missing_y) =
+            find_text_position_in_area(&buffer, process_area, "--").unwrap();
+        assert_eq!(
+            buffer[(missing_x, missing_y)].bg,
+            theme.table_intersection_surface
+        );
+        assert!(
+            buffer[(missing_x, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+
+        assert!(app.set_active_graph(second_id));
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (available_x, available_y) =
+            find_text_position_in_area(&buffer, process_area, "107.4 GB").unwrap();
+        let (missing_x, missing_y) =
+            find_text_position_in_area(&buffer, process_area, "--").unwrap();
+        assert!(
+            !buffer[(available_x, available_y)]
+                .modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            buffer[(available_x, available_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        assert!(
+            buffer[(missing_x, missing_y)]
+                .modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            buffer[(missing_x, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+
+        assert!(app.move_active_graph_earlier());
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (missing_x, missing_y) =
+            find_text_position_in_area(&buffer, process_area, "--").unwrap();
+        assert!(
+            buffer[(missing_x, missing_y)]
+                .modifier
+                .contains(Modifier::BOLD | Modifier::UNDERLINED)
+        );
+
+        app.remove_active_graph();
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let (available_x, available_y) =
+            find_text_position_in_area(&buffer, process_area, "107.4 GB").unwrap();
+        let (missing_x, missing_y) =
+            find_text_position_in_area(&buffer, process_area, "--").unwrap();
+        assert_eq!(buffer[(missing_x, missing_y)].fg, theme.text);
+        assert!(
+            !buffer[(missing_x, missing_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED | Modifier::BOLD)
+        );
+        assert!(
+            buffer[(available_x, available_y)]
+                .modifier
+                .contains(Modifier::UNDERLINED | Modifier::BOLD)
+        );
+    }
 }
 
 #[test]

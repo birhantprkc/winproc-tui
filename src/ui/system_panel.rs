@@ -17,7 +17,7 @@ use crate::{
         cpu_panel::{cpu_panel_lines_for_app, draw_cpu_panel},
         footer::shortcut_spans,
         format::{format_integer, format_mb, ratio_optional},
-        graph_slot::graph_value_style,
+        graph_slot::graph_value_spans,
         layout::system_panel_area_for_screen,
         widgets::block::{modal_block_focused, modal_title, panel_block_focused},
     },
@@ -236,16 +236,17 @@ fn render_summary_graph_slot_value_line_with_label_width(
     value: &str,
     theme: Theme,
 ) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(
-            format!("{label:<label_width$}"),
-            Style::default().fg(theme.muted),
-        ),
-        Span::styled(
-            value.to_string(),
-            graph_value_style(Style::default().fg(theme.text), graph_state, theme),
-        ),
-    ])
+    let mut spans = vec![Span::styled(
+        format!("{label:<label_width$}"),
+        Style::default().fg(theme.muted),
+    )];
+    spans.extend(graph_value_spans(
+        value,
+        Style::default().fg(theme.text),
+        graph_state,
+        theme,
+    ));
+    Line::from(spans)
 }
 
 pub(crate) fn ram_vram_panel_area_for_screen(screen_area: Rect, app: &App) -> Rect {
@@ -576,17 +577,18 @@ fn render_gpu_percent_line(
         GraphSlot::gpu(adapter.id, adapter.name.as_deref().unwrap_or("GPU"), metric)
     });
     let graph_state = slot.as_ref().and_then(|slot| app.graph_source_state(slot));
-    Line::from(vec![
-        Span::styled(
-            format!("{label:<GPU_ROW_LABEL_WIDTH$}"),
-            Style::default().fg(theme.muted),
-        ),
-        Span::styled(
-            value,
-            graph_value_style(Style::default().fg(theme.text), graph_state, theme),
-        ),
-        Span::styled(suffix, Style::default().fg(theme.muted)),
-    ])
+    let mut spans = vec![Span::styled(
+        format!("{label:<GPU_ROW_LABEL_WIDTH$}"),
+        Style::default().fg(theme.muted),
+    )];
+    spans.extend(graph_value_spans(
+        value,
+        Style::default().fg(theme.text),
+        graph_state,
+        theme,
+    ));
+    spans.push(Span::styled(suffix, Style::default().fg(theme.muted)));
+    Line::from(spans)
 }
 
 fn render_gpu_memory_line(
@@ -609,7 +611,8 @@ fn render_gpu_memory_line(
         total,
         None,
         false,
-        graph_value_style(Style::default().fg(theme.text), graph_state, theme),
+        Style::default().fg(theme.text),
+        graph_state,
         theme,
     )
 }
@@ -750,6 +753,7 @@ pub(crate) fn render_summary_line(
         suffix,
         true,
         Style::default().fg(theme.text),
+        None,
         theme,
     )
 }
@@ -764,6 +768,7 @@ fn render_summary_line_with_label_width(
     suffix: Option<&str>,
     show_ratio: bool,
     value_style: Style,
+    graph_state: Option<GraphSourceState>,
     theme: Theme,
 ) -> Line<'static> {
     let ratio_value = show_ratio.then(|| ratio_optional(used, total)).flatten();
@@ -778,11 +783,13 @@ fn render_summary_line_with_label_width(
         format!("{title:<label_width$}"),
         Style::default().fg(theme.muted),
     )];
-    spans.push(Span::styled(stats, value_style));
+    spans.extend(graph_value_spans(stats, value_style, graph_state, theme));
     if let Some(ratio_value) = ratio_value {
-        spans.push(Span::styled(
+        spans.extend(graph_value_spans(
             format!(" ({:>3.0}%)", ratio_value * 100.0),
             value_style,
+            graph_state,
+            theme,
         ));
     }
     if !suffix_text.is_empty() {
@@ -807,7 +814,8 @@ fn render_summary_graph_slot_line(
         total,
         suffix,
         false,
-        graph_value_style(Style::default().fg(theme.text), graph_state, theme),
+        Style::default().fg(theme.text),
+        graph_state,
         theme,
     )
 }
