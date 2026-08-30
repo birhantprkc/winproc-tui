@@ -4,7 +4,7 @@
 
 This document is the entry point for system-wide responsibility boundaries, runtime data flow, and cross-cutting design decisions. Feature-specific state and invariants are owned by the related design documents:
 
-- [Tracking and Live History](tracking-and-history.md): tracking intent, process identity, named lists, Ghost Rows, and retention.
+- [Tracking and Live History](tracking-and-history.md): Current Investigation, profiles, tracking intent, process identity, Ghost Rows, and retention.
 - [Graph Workspace](graph-workspace.md): Graph identity, shared time state, Samples, A/B comparison, and responsive layout.
 - [Process Investigation](process-investigation.md): System Info, Process Info, Files, DLLs, Environment, and asynchronous target safety.
 - [Recording and Log View](recording-and-log-view.md): activity transitions, session ownership, failure handling, and log loading.
@@ -66,7 +66,7 @@ Worker results carry enough identity, generation, or request information to reje
 
 `App` owns Live, paused, Recording, Log-list, and Log-view state. Display accessors select the appropriate snapshot and history without asking widgets to maintain activity-specific copies.
 
-Long-lived user intent and per-process identity remain separate. The feature documents define how Tracking Lists, Graph sources, Recording scope, and Process Info targets preserve that distinction.
+Long-lived user intent and per-process identity remain separate. The Current Investigation and named Investigation Profiles store reusable intent, while Graph sources, Recording scope, and Process Info targets preserve runtime identity where required.
 
 ### 3.3 Treat Windows data as best effort
 
@@ -80,7 +80,7 @@ Display pause freezes only the visible state. Sampling, histories, freshness, an
 
 ### 3.5 Preserve recoverable session data
 
-Configuration is replaced only after a successful interactive run, while explicit saved-list operations persist immediately. Recording uses appendable JSON Lines and preserves partial files after interruption or failure. Detailed persistence and lifecycle rules are defined by the relevant feature documents.
+Configuration is replaced only after a successful interactive run, while startup-setting and explicit Investigation Profile operations persist immediately. Recording uses appendable JSON Lines and preserves partial files after interruption or failure. Detailed persistence and lifecycle rules are defined by the relevant feature documents.
 
 ## 4. Runtime Flow
 
@@ -88,7 +88,7 @@ Configuration is replaced only after a successful interactive run, while explici
 
 1. `main` parses the CLI and acquires a Windows session-local named mutex. A second instance exits before terminal setup or configuration access.
 2. The first instance installs the console control handler, resolves configuration, and enters raw mode and the alternate screen.
-3. Tracking List startup state is resolved before the first sample. `App::new` then performs one synchronous initial collection so the first main screen has data without exposing the terminal prompt.
+3. Investigation startup state is resolved before the first sample. Tracking intent and other identity-independent settings apply immediately. `App::new` then performs one synchronous initial collection and resolves saved Graph templates against that snapshot, assigning new runtime identities and Graph IDs.
 4. `SamplingWorker` handles subsequent samples while `run_tui` uses the same terminal session.
 5. After the loop returns, `main` restores the terminal and saves session configuration only when the run succeeded.
 
@@ -122,7 +122,7 @@ The collection boundary deliberately produces one aggregate `Snapshot`. Explicit
 
 - sampling progress, current Live data, freshness, and warnings;
 - process-table selection, filtering, sorting, columns, and visible-row caches;
-- tracking intent, saved definitions, histories, and exited rows;
+- Current Investigation, named Investigation Profiles, tracking intent, histories, and exited rows;
 - ordered Graphs and shared comparison state;
 - modal and asynchronous investigation sessions;
 - display pause, Recording, Log list, and Log view;
@@ -164,7 +164,7 @@ When behavior changes, update its canonical owner:
 | Product positioning, installation, first-use workflow | README and Japanese README |
 | Complete controls and contextual actions | In-app Help, Footer, dialog guidance, implementation, and tests |
 | Metric meaning, source, format, aggregation, recording field | [metrics.md](metrics.md) |
-| Tracking intent, identity, list persistence, history retention | [tracking-and-history.md](tracking-and-history.md) |
+| Current Investigation, profiles, tracking intent, identity, history retention | [tracking-and-history.md](tracking-and-history.md) |
 | Graph, Samples, A/B, and workspace layout state | [graph-workspace.md](graph-workspace.md) |
 | System Info and Process Info collection lifecycle | [process-investigation.md](process-investigation.md) |
 | Recording, log loading, and Log-view lifecycle | [recording-and-log-view.md](recording-and-log-view.md) |

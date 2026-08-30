@@ -50,9 +50,11 @@ fn run_application_session(
     config_path: &std::path::Path,
     mut config: config::AppConfig,
 ) -> Result<()> {
-    if config.tracking.startup == config::TrackedListStartup::ChooseList
-        && startup::choose_startup_tracked_list(terminal, &mut config)?
-            == startup::StartupOutcome::Quit
+    config::prepare_app_config(&mut config);
+    if config.investigation.as_ref().is_some_and(|investigation| {
+        investigation.startup == config::InvestigationStartup::ChooseProfile
+    }) && startup::choose_startup_investigation(terminal, &mut config)?
+        == startup::StartupOutcome::Quit
     {
         return Ok(());
     }

@@ -10,7 +10,15 @@ A source identifies one graphable system metric or one process metric. Process s
 
 The collection has no holes or duplicate sources. A non-empty collection always has one `active_graph_id` that resolves to an entry, and an ID is never reused during the run.
 
-Graph registrations, IDs, and scroll position are session state and are not restored across launches. Layout and explicit Samples and Delta visibility preferences are saved settings.
+The Current Investigation and named Investigation Profiles store ordered reusable Graph source templates and each template's Raw/MA5 mode. They never store Graph IDs, resolved process lifetimes, scroll position, or cursor state. On the next launch or explicit profile load, templates rebuild the workspace with new Graph IDs after they resolve against the current Live snapshot.
+
+## Investigation Profile Templates
+
+An Investigation Profile stores ordered Graph source templates rather than `GraphSlot` values. A process template contains a case-insensitive process name, an optional executable-path constraint captured when available, and a stable metric identifier. A GPU template contains the adapter name and stable GPU metric identifier. Other system templates contain only their stable system metric identity.
+
+Profile and last-investigation loading resolve templates against the current Live snapshot. A process or GPU template is restored only when it has exactly one match. Missing or multiple matches, invalid metric identifiers, duplicate resolved sources, and entries beyond the 16-Graph limit are skipped and listed in the load result; the application never guesses, merges, or redirects them. Each restored Graph receives a new run-unique `GraphId` and restores the template's Raw/MA5 display mode.
+
+Loading preserves the stored template order and restores the Graph layout, each Graph's Raw/MA5 mode, shared fixed time span, Samples and Delta visibility, and Y-axis lower-bound mode. It resets A/B points, selected sample time, fit-all state, visible-time offset, live-follow position, Graph scroll position, and other run-specific state. An unavailable template does not prevent available templates from loading.
 
 ## Shared and Graph-Specific State
 
@@ -66,6 +74,7 @@ Drawing and mouse hit testing consume one `GraphWorkspaceLayout` result for shar
 ## Invariants
 
 - A non-empty workspace contains at most 16 unique sources and one valid active ID.
+- Profile templates resolve only to unique current Live sources and never persist a `GraphId` or `ProcessIdentity`.
 - Graph IDs are run-unique and never reused.
 - Reordering preserves identity and all shared comparison state.
 - Raw or MA5 mode remains owned by its Graph entry across reordering and resize.

@@ -1,7 +1,7 @@
-use super::support::{make_test_app, unique_config_path};
+use super::support::{assign_private_graph, make_test_app, unique_config_path};
 use crate::app::{
-    GraphSlotLayout, ProcessPanelHeight, ProcessViewMode, SAMPLE_STALE_AFTER_SECONDS,
-    SampleFreshness,
+    GraphDisplayMode, GraphSlotLayout, ProcessPanelHeight, ProcessViewMode,
+    SAMPLE_STALE_AFTER_SECONDS, SampleFreshness,
 };
 use crate::cli::Cli;
 use crate::config;
@@ -314,7 +314,7 @@ fn build_runtime_config_falls_back_when_custom_columns_are_empty() {
 
     let runtime = build_runtime_config(config).unwrap();
 
-    assert_eq!(runtime.column_preset, ColumnPreset::Custom);
+    assert_eq!(runtime.column_preset, ColumnPreset::Default);
     assert_eq!(
         runtime.process_columns,
         ColumnPreset::Default.columns().to_vec()
@@ -489,7 +489,7 @@ name = "legacy-watch.exe"
 }
 
 #[test]
-fn app_config_saves_tracked_entries() {
+fn app_config_does_not_serialize_legacy_tracked_entries() {
     let mut config = AppConfig::default();
     config.tracked.push(config::TrackedConfig {
         name: "app.exe".to_string(),
@@ -497,12 +497,12 @@ fn app_config_saves_tracked_entries() {
 
     let rendered = toml::to_string(&config).unwrap();
 
-    assert!(rendered.contains("[[tracked]]"));
+    assert!(!rendered.contains("[[tracked]]"));
     assert!(!rendered.contains("[[watch]]"));
 }
 
 #[test]
-fn app_config_accepts_named_tracked_lists_and_startup_mode() {
+fn legacy_named_tracking_lists_migrate_to_profiles_and_startup_mode() {
     let config: AppConfig = toml::from_str(
         r#"
 [tracking]
@@ -515,15 +515,16 @@ processes = ["api.exe", "worker.exe"]
 "#,
     )
     .unwrap();
+    let runtime = build_runtime_config(config).unwrap();
 
     assert_eq!(
-        config.tracking.startup,
-        config::TrackedListStartup::ChooseList
+        runtime.investigation_startup,
+        config::InvestigationStartup::ChooseProfile
     );
-    assert_eq!(config.tracking.active_list.as_deref(), Some("API"));
-    assert_eq!(config.tracked_lists[0].name, "API");
+    assert_eq!(runtime.active_investigation_profile.as_deref(), Some("API"));
+    assert_eq!(runtime.saved_investigation_profiles[0].name, "API");
     assert_eq!(
-        config.tracked_lists[0].processes,
+        runtime.saved_investigation_profiles[0].tracked_names,
         vec!["api.exe", "worker.exe"]
     );
 }
@@ -531,6 +532,9 @@ processes = ["api.exe", "worker.exe"]
 #[test]
 fn start_empty_runtime_ignores_last_working_tracked_list() {
     let mut config = AppConfig::default();
+    config.general.mouse = false;
+    config.general.theme = "Cyan".to_string();
+    config.process_table.body_rows = config::ProcessPanelHeightConfig::Rows(14);
     config.tracking.startup = config::TrackedListStartup::StartEmpty;
     config.tracking.active_list = Some("API".to_string());
     config.tracked.push(config::TrackedConfig {
@@ -540,93 +544,198 @@ fn start_empty_runtime_ignores_last_working_tracked_list() {
     let runtime = build_runtime_config(config).unwrap();
 
     assert!(runtime.process_filters.is_empty());
-    assert_eq!(runtime.active_tracked_list, None);
-}
-
-#[test]
-fn runtime_normalizes_named_tracked_lists_case_insensitively() {
-    let mut config = AppConfig::default();
-    config.tracked_lists = vec![
-        config::SavedTrackedList {
-            name: " API ".to_string(),
-            processes: vec![
-                "api.exe".to_string(),
-                "API.EXE".to_string(),
-                " worker.exe ".to_string(),
-            ],
-        },
-        config::SavedTrackedList {
-            name: "api".to_string(),
-            processes: vec!["duplicate.exe".to_string()],
-        },
-        config::SavedTrackedList {
-            name: " empty (DEFAULT) ".to_string(),
-            processes: Vec::new(),
-        },
-    ];
-
-    let runtime = build_runtime_config(config).unwrap();
-
-    assert_eq!(runtime.saved_tracked_lists.len(), 1);
-    assert_eq!(runtime.saved_tracked_lists[0].name, "API");
+    assert_eq!(runtime.active_investigation_profile, None);
+    assert!(!runtime.mouse);
+    assert_eq!(runtime.initial_theme, "Cyan");
     assert_eq!(
-        runtime.saved_tracked_lists[0].processes,
-        vec!["api.exe", "worker.exe"]
+        runtime.initial_process_panel_height,
+        ProcessPanelHeight::Manual(14)
     );
 }
 
 #[test]
-fn runtime_does_not_restore_builtin_empty_as_a_named_list() {
+fn legacy_tracking_list_name_collision_preserves_both_profiles() {
     let mut config = AppConfig::default();
-    config.tracking.active_list = Some("Empty (default)".to_string());
+    config.tracking.startup = config::TrackedListStartup::ChooseList;
+    config.tracking.active_list = Some("API".to_string());
+    config.investigation_profiles = vec![config::SavedInvestigationProfile {
+        name: "API".to_string(),
+        ..config::SavedInvestigationProfile::default()
+    }];
     config.tracked_lists = vec![config::SavedTrackedList {
-        name: "Empty (default)".to_string(),
-        processes: Vec::new(),
+        name: "API".to_string(),
+        processes: vec!["api.exe".to_string(), "API.EXE".to_string()],
     }];
 
     let runtime = build_runtime_config(config).unwrap();
 
-    assert_eq!(runtime.active_tracked_list, None);
-    assert!(runtime.saved_tracked_lists.is_empty());
+    assert_eq!(runtime.saved_investigation_profiles.len(), 2);
+    assert_eq!(runtime.saved_investigation_profiles[0].name, "API");
+    assert_eq!(
+        runtime.saved_investigation_profiles[1].name,
+        "API (Tracking List)"
+    );
+    assert_eq!(
+        runtime.saved_investigation_profiles[1].tracked_names,
+        vec!["api.exe"]
+    );
+    assert_eq!(
+        runtime.active_investigation_profile.as_deref(),
+        Some("API (Tracking List)")
+    );
 }
 
 #[test]
-fn app_config_saves_named_tracked_lists_and_startup_mode() {
+fn app_config_writes_only_the_unified_investigation_format() {
     let mut app = make_test_app(1, 10);
-    app.runtime.tracked_list_startup = config::TrackedListStartup::ChooseList;
-    app.runtime.active_tracked_list = Some("API".to_string());
-    app.runtime.saved_tracked_lists = vec![config::SavedTrackedList {
+    app.runtime.investigation_startup = config::InvestigationStartup::ChooseProfile;
+    app.active_investigation_profile = Some("API".to_string());
+    app.watch_list = vec!["api.exe".to_string()];
+    app.runtime.saved_investigation_profiles = vec![config::SavedInvestigationProfile {
         name: "API".to_string(),
-        processes: vec!["api.exe".to_string()],
+        investigation: config::InvestigationStateConfig {
+            tracked_names: vec!["api.exe".to_string()],
+            ..config::InvestigationStateConfig::default()
+        },
     }];
-    let path = unique_config_path("named-tracked-lists");
+    let path = unique_config_path("unified-investigations");
 
     write_app_config(&path, &app).unwrap();
     let rendered = std::fs::read_to_string(&path).unwrap();
     let _ = std::fs::remove_file(&path);
 
-    assert!(rendered.contains("startup = \"choose_list\""), "{rendered}");
-    assert!(rendered.contains("active_list = \"API\""), "{rendered}");
-    assert!(rendered.contains("[[tracked_lists]]"), "{rendered}");
-    assert!(rendered.contains("processes = [\"api.exe\"]"), "{rendered}");
+    assert!(rendered.contains("[investigation]"), "{rendered}");
+    assert!(
+        rendered.contains("startup = \"choose_profile\""),
+        "{rendered}"
+    );
+    assert!(rendered.contains("active_profile = \"API\""), "{rendered}");
+    assert!(
+        rendered.contains("tracked_names = [\"api.exe\"]"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("[[tracked_lists]]"), "{rendered}");
+    assert!(!rendered.contains("[tracking]"), "{rendered}");
 }
 
 #[test]
-fn app_config_never_writes_builtin_empty_as_a_named_list() {
+fn investigation_profiles_round_trip_through_config() {
     let mut app = make_test_app(1, 10);
-    app.runtime.active_tracked_list = Some("Empty (default)".to_string());
-    app.runtime.saved_tracked_lists = vec![config::SavedTrackedList {
-        name: "Empty (default)".to_string(),
-        processes: Vec::new(),
+    app.runtime.saved_investigation_profiles = vec![config::SavedInvestigationProfile {
+        name: "API investigation".to_string(),
+        investigation: config::InvestigationStateConfig {
+            tracked_names: vec!["api.exe".to_string()],
+            process_columns: vec!["CPU%".to_string(), "PrivBytes".to_string()],
+            graphs: vec![config::InvestigationGraphConfig {
+                kind: "process".to_string(),
+                metric: "private_bytes".to_string(),
+                display_mode: "ma5".to_string(),
+                process_name: Some("api.exe".to_string()),
+                executable_path: Some(r"C:\apps\api.exe".to_string()),
+                gpu_adapter_name: None,
+            }],
+            graph_columns: 2,
+            graph_time_span_seconds: 300,
+            samples: false,
+            delta: false,
+            y_axis_zero_min: false,
+            recording_interval_seconds: 5,
+            ..config::InvestigationStateConfig::default()
+        },
     }];
-    let path = unique_config_path("builtin-empty-tracked-list");
+    let path = unique_config_path("investigation-profiles");
 
-    config::write_app_config(&path, &app).unwrap();
+    write_app_config(&path, &app).unwrap();
     let rendered = std::fs::read_to_string(&path).unwrap();
+    let runtime = build_runtime_config(load_config(&path).unwrap()).unwrap();
     let _ = std::fs::remove_file(&path);
 
-    assert!(!rendered.contains("Empty (default)"), "{rendered}");
-    assert!(!rendered.contains("[[tracked_lists]]"), "{rendered}");
+    assert!(
+        rendered.contains("[[investigation_profiles]]"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("[[investigation_profiles.graphs]]"),
+        "{rendered}"
+    );
+    assert_eq!(runtime.saved_investigation_profiles.len(), 1);
+    assert_eq!(
+        runtime.saved_investigation_profiles[0],
+        app.runtime.saved_investigation_profiles[0]
+    );
+}
+
+#[test]
+fn investigation_profile_config_normalizes_invalid_values() {
+    let mut config = AppConfig::default();
+    config.investigation_profiles = vec![
+        config::SavedInvestigationProfile {
+            name: " Profile ".to_string(),
+            investigation: config::InvestigationStateConfig {
+                tracked_names: vec![" app.exe ".to_string(), "APP.EXE".to_string()],
+                process_columns: vec!["unknown".to_string()],
+                graphs: vec![config::InvestigationGraphConfig {
+                    kind: " PROCESS ".to_string(),
+                    metric: " PRIVATE_BYTES ".to_string(),
+                    display_mode: " MA ".to_string(),
+                    process_name: Some(" app.exe ".to_string()),
+                    executable_path: Some(" ".to_string()),
+                    gpu_adapter_name: None,
+                }],
+                graph_columns: 9,
+                graph_time_span_seconds: 1,
+                samples: true,
+                delta: true,
+                y_axis_zero_min: true,
+                recording_interval_seconds: 3,
+                ..config::InvestigationStateConfig::default()
+            },
+        },
+        config::SavedInvestigationProfile {
+            name: "profile".to_string(),
+            ..config::SavedInvestigationProfile::default()
+        },
+        config::SavedInvestigationProfile::default(),
+    ];
+
+    let runtime = build_runtime_config(config).unwrap();
+
+    assert_eq!(runtime.saved_investigation_profiles.len(), 1);
+    let profile = &runtime.saved_investigation_profiles[0];
+    assert_eq!(profile.name, "Profile");
+    assert_eq!(profile.tracked_names, ["app.exe"]);
+    assert_eq!(
+        profile.process_columns,
+        ColumnPreset::Default
+            .effective_columns()
+            .iter()
+            .map(|column| column.label().to_string())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(profile.graph_columns, 0);
+    assert_eq!(profile.graph_time_span_seconds, 60);
+    assert_eq!(profile.recording_interval_seconds, 1);
+    assert_eq!(profile.graphs[0].kind, "process");
+    assert_eq!(profile.graphs[0].metric, "private_bytes");
+    assert_eq!(profile.graphs[0].display_mode, "ma5");
+    assert_eq!(profile.graphs[0].process_name.as_deref(), Some("app.exe"));
+    assert_eq!(profile.graphs[0].executable_path, None);
+}
+
+#[test]
+fn config_without_investigation_profiles_remains_compatible() {
+    let config: AppConfig = toml::from_str(
+        r#"
+[general]
+mouse = true
+theme = "Green"
+"#,
+    )
+    .unwrap();
+
+    let runtime = build_runtime_config(config).unwrap();
+
+    assert!(runtime.saved_investigation_profiles.is_empty());
 }
 
 #[test]
@@ -661,6 +770,8 @@ fn app_config_saves_selected_color_scheme() {
 #[test]
 fn app_config_saves_graph_layout_and_explicit_samples_preference() {
     let mut app = make_test_app(3, 10);
+    assign_private_graph(&mut app);
+    app.graph_entries[0].display_mode = GraphDisplayMode::MovingAverage5;
     app.graph_slot_layout = GraphSlotLayout::TwoColumns;
     app.show_samples_panel = false;
     app.show_sample_delta = false;
@@ -668,12 +779,16 @@ fn app_config_saves_graph_layout_and_explicit_samples_preference() {
 
     write_app_config(&path, &app).unwrap();
     let rendered = std::fs::read_to_string(&path).unwrap();
+    let runtime = build_runtime_config(load_config(&path).unwrap()).unwrap();
     let _ = std::fs::remove_file(&path);
 
-    assert!(rendered.contains("[graphs]"), "{rendered}");
-    assert!(rendered.contains("columns = 2"), "{rendered}");
+    assert!(rendered.contains("[investigation]"), "{rendered}");
+    assert!(rendered.contains("graph_columns = 2"), "{rendered}");
     assert!(rendered.contains("samples = false"), "{rendered}");
     assert!(rendered.contains("delta = false"), "{rendered}");
+    assert!(rendered.contains("display_mode = \"ma5\""), "{rendered}");
+    assert_eq!(runtime.initial_graph_templates.len(), 1);
+    assert_eq!(runtime.initial_graph_templates[0].display_mode, "ma5");
 }
 
 #[test]
@@ -685,8 +800,8 @@ fn app_config_saves_auto_graph_layout() {
     let rendered = std::fs::read_to_string(&path).unwrap();
     let _ = std::fs::remove_file(&path);
 
-    assert!(rendered.contains("[graphs]"), "{rendered}");
-    assert!(rendered.contains("columns = 0"), "{rendered}");
+    assert!(rendered.contains("[investigation]"), "{rendered}");
+    assert!(rendered.contains("graph_columns = 0"), "{rendered}");
 }
 
 #[test]

@@ -58,7 +58,6 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
                 ),
                 ("t", "Track"),
                 ("Shift+T", "Tracked-only"),
-                ("Ctrl+T", "Lists"),
                 ("c", "Columns"),
                 ("w/W", "Width"),
                 ("s", "Sort"),
@@ -131,6 +130,7 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
         items.push(("Ctrl+P", "Pause"));
         items.push(("Esc", "Quit"));
     }
+    items.push(("Ctrl+T", "Profiles"));
     items.push(("F12", "Color"));
     items.push(("F1/?", "Help"));
 

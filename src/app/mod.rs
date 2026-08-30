@@ -5,6 +5,7 @@ pub(crate) mod log_format;
 pub(crate) mod logs;
 pub(crate) mod navigation;
 pub(crate) mod path_completion;
+pub(crate) mod profiles;
 pub(crate) mod state;
 pub(crate) mod system_info;
 
@@ -22,17 +23,18 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use crate::ui::{
     column_picker_page_size_for_screen, cpu_core_dialog_page_size_for_screen, draw,
     graph_reorder_page_size_for_screen, help_page_size_for_screen,
+    investigation_profiles_page_size_for_screen,
     layout::{
         MainPanelAreas, details_samples_row_capacity, details_samples_summary_visibility,
         graph_workspace_layout,
     },
     main_panel_areas_for_app, process_info_page_size_for_screen,
-    tracked_lists_page_size_for_screen,
 };
 
 const EVENT_POLL_SLICE: Duration = Duration::from_millis(50);
 pub(crate) const SAMPLING_INTERVAL_SECONDS: u64 = 1;
 
+pub(crate) use profiles::{InvestigationProfilesView, ProfileNameInputPurpose};
 pub(crate) use state::AbComparison;
 pub(crate) use state::AbComparisonPoint;
 pub(crate) use state::App;
@@ -68,7 +70,6 @@ pub(crate) use state::ResourcePanel;
 #[cfg(test)]
 pub(crate) use state::SAMPLE_STALE_AFTER_SECONDS;
 pub(crate) use state::SampleFreshness;
-pub(crate) use state::TrackedListsView;
 #[cfg(test)]
 pub(crate) use state::VisibleProcessEntry;
 pub(crate) use state::VisibleProcessRow;
@@ -298,7 +299,10 @@ pub(crate) fn sync_layout_state(app: &mut App, screen_area: Rect) {
     app.set_process_info_page_size(process_info_page_size_for_screen(screen_area));
     let cpu_core_page_size = cpu_core_dialog_page_size_for_screen(screen_area, app);
     app.set_cpu_core_page_size(cpu_core_page_size);
-    app.set_tracked_lists_page_size(tracked_lists_page_size_for_screen(screen_area));
+    app.set_investigation_profiles_page_size(investigation_profiles_page_size_for_screen(
+        screen_area,
+        app,
+    ));
     app.ensure_visible_panel_focus();
     app.clamp_process_table_state();
 }

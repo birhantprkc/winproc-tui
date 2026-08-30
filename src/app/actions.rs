@@ -9,8 +9,8 @@ use ratatui::layout::{Margin, Rect};
 use crate::{
     app::{
         App, AppActivity, DetailsMetric, FocusedPanel, GraphHoverTarget, GraphId, GraphPanDrag,
-        GraphPanDragButton, GraphSlot, ProcessInfoFocus, ProcessPanelHeight,
-        ProcessPanelResizeDrag, TrackedListsView,
+        GraphPanDragButton, GraphSlot, InvestigationProfilesView, ProcessInfoFocus,
+        ProcessPanelHeight, ProcessPanelResizeDrag,
     },
     platform::send_terminal_zoom_shortcut,
     ui::{
@@ -19,7 +19,9 @@ use crate::{
         cpu_per_core_button_area,
         details_panel::graph_y_axis_label_width,
         gpu_panel_area_for_screen, graph_reorder_index_at, graph_reorder_scrollbar_area,
-        help_scrollbar_area,
+        help_scrollbar_area, investigation_profile_index_at,
+        investigation_profile_startup_at_for_screen,
+        investigation_profile_startup_link_at_for_screen,
         layout::{
             DetailsSamplesSummaryVisibility, GraphWorkspaceLayout, ProcessTableLayout,
             details_graph_chart_area, details_samples_summary_visibility,
@@ -30,8 +32,7 @@ use crate::{
         process_tracked_only_control_area, process_tree_disclosure_hit_test,
         process_view_mode_control_area, ram_vram_panel_area_for_screen,
         recording_interval_option_at, recording_interval_selector_area, recording_path_input_area,
-        system_activity_panel_area_for_screen, tracked_list_index_at,
-        tracked_list_save_name_area_for_screen, tracked_list_startup_at_for_screen,
+        system_activity_panel_area_for_screen,
     },
 };
 
@@ -110,136 +111,107 @@ impl App {
             return Ok(());
         }
 
-        if let Some(view) = self.tracked_lists_view().cloned() {
+        if let Some(view) = self.investigation_profiles_view().cloned() {
             match view {
-                TrackedListsView::Browse => match key.code {
-                    KeyCode::Esc => self.close_tracked_lists(),
-                    KeyCode::Tab => self.focus_next_tracked_lists_control(),
-                    KeyCode::BackTab => self.focus_previous_tracked_lists_control(),
-                    KeyCode::Backspace if self.tracked_lists_save_name_focused() => {
-                        self.pop_tracked_list_save_name_char();
-                    }
-                    KeyCode::Delete if self.tracked_lists_save_name_focused() => {
-                        self.delete_tracked_list_save_name_char();
-                    }
-                    KeyCode::Delete => self.request_delete_selected_tracked_list(),
-                    KeyCode::F(2) => self.begin_tracked_list_rename(),
-                    KeyCode::Left if self.tracked_lists_save_name_focused() => {
-                        self.move_tracked_list_save_name_cursor_left();
-                    }
-                    KeyCode::Right if self.tracked_lists_save_name_focused() => {
-                        self.move_tracked_list_save_name_cursor_right();
-                    }
-                    KeyCode::Left if self.tracked_lists_startup_focused() => {
-                        self.select_previous_tracked_list_startup();
-                    }
-                    KeyCode::Right | KeyCode::Char(' ') if self.tracked_lists_startup_focused() => {
-                        self.select_next_tracked_list_startup();
-                    }
-                    KeyCode::Home if self.tracked_lists_save_name_focused() => {
-                        self.move_tracked_list_save_name_cursor_home();
-                    }
-                    KeyCode::End if self.tracked_lists_save_name_focused() => {
-                        self.move_tracked_list_save_name_cursor_end();
-                    }
-                    KeyCode::Enter => {
-                        if self.tracked_lists_save_name_focused() {
-                            self.save_current_tracked_list();
-                        } else if self.tracked_lists_startup_focused() {
-                            self.close_tracked_lists();
-                        } else {
-                            self.load_selected_tracked_list();
-                        }
-                    }
-                    KeyCode::Up
-                        if !self.tracked_lists_save_name_focused()
-                            && !self.tracked_lists_startup_focused() =>
+                InvestigationProfilesView::Browse => match key.code {
+                    KeyCode::Esc => self.close_investigation_profiles(),
+                    KeyCode::Enter => self.load_selected_investigation_profile(),
+                    KeyCode::Delete => self.request_delete_selected_investigation_profile(),
+                    KeyCode::F(2) => self.begin_rename_investigation_profile(),
+                    KeyCode::Up => self.move_investigation_profile_selection_up(1),
+                    KeyCode::Down => self.move_investigation_profile_selection_down(1),
+                    KeyCode::PageUp => self.move_investigation_profile_selection_up(
+                        self.investigation_profiles_dialog
+                            .as_ref()
+                            .map(|dialog| dialog.scroll.page_size)
+                            .unwrap_or(1),
+                    ),
+                    KeyCode::PageDown => self.move_investigation_profile_selection_down(
+                        self.investigation_profiles_dialog
+                            .as_ref()
+                            .map(|dialog| dialog.scroll.page_size)
+                            .unwrap_or(1),
+                    ),
+                    KeyCode::Home => self.move_investigation_profile_selection_home(),
+                    KeyCode::End => self.move_investigation_profile_selection_end(),
+                    KeyCode::Char(ch)
+                        if ch.eq_ignore_ascii_case(&'u') && key.modifiers.is_empty() =>
                     {
-                        self.move_tracked_list_selection_up(1);
-                    }
-                    KeyCode::Down
-                        if !self.tracked_lists_save_name_focused()
-                            && !self.tracked_lists_startup_focused() =>
-                    {
-                        self.move_tracked_list_selection_down(1);
-                    }
-                    KeyCode::PageUp
-                        if !self.tracked_lists_save_name_focused()
-                            && !self.tracked_lists_startup_focused() =>
-                    {
-                        self.move_tracked_list_selection_up(
-                            self.tracked_lists_dialog
-                                .as_ref()
-                                .map(|dialog| dialog.scroll.page_size)
-                                .unwrap_or(1),
-                        );
-                    }
-                    KeyCode::PageDown
-                        if !self.tracked_lists_save_name_focused()
-                            && !self.tracked_lists_startup_focused() =>
-                    {
-                        self.move_tracked_list_selection_down(
-                            self.tracked_lists_dialog
-                                .as_ref()
-                                .map(|dialog| dialog.scroll.page_size)
-                                .unwrap_or(1),
-                        );
-                    }
-                    KeyCode::Home
-                        if !self.tracked_lists_save_name_focused()
-                            && !self.tracked_lists_startup_focused() =>
-                    {
-                        self.move_tracked_list_selection_home();
-                    }
-                    KeyCode::End
-                        if !self.tracked_lists_save_name_focused()
-                            && !self.tracked_lists_startup_focused() =>
-                    {
-                        self.move_tracked_list_selection_end();
+                        self.open_investigation_startup();
                     }
                     KeyCode::Char(ch)
-                        if self.tracked_lists_save_name_focused()
+                        if ch.eq_ignore_ascii_case(&'s')
                             && !key.modifiers.contains(KeyModifiers::CONTROL)
-                            && !key.modifiers.contains(KeyModifiers::ALT) =>
+                            && !key.modifiers.contains(KeyModifiers::ALT)
+                            && (ch.is_ascii_uppercase()
+                                || key.modifiers.contains(KeyModifiers::SHIFT)) =>
                     {
-                        self.push_tracked_list_save_name_char(ch);
+                        self.begin_save_investigation_profile_as();
                     }
-                    KeyCode::Char(ch)
-                        if ch.eq_ignore_ascii_case(&'s') && key.modifiers.is_empty() =>
-                    {
-                        self.save_current_tracked_list();
+                    KeyCode::Char('s') if key.modifiers.is_empty() => {
+                        self.save_active_investigation_profile();
                     }
                     _ => {}
                 },
-                TrackedListsView::NameInput { .. } => match key.code {
-                    KeyCode::Esc => self.cancel_tracked_list_subdialog(),
-                    KeyCode::Enter => self.commit_tracked_list_name_input(),
-                    KeyCode::Backspace => self.pop_tracked_list_name_char(),
-                    KeyCode::Delete => self.delete_tracked_list_name_char(),
-                    KeyCode::Left => self.move_tracked_list_name_cursor_left(),
-                    KeyCode::Right => self.move_tracked_list_name_cursor_right(),
-                    KeyCode::Home => self.move_tracked_list_name_cursor_home(),
-                    KeyCode::End => self.move_tracked_list_name_cursor_end(),
+                InvestigationProfilesView::Startup { .. } => match key.code {
+                    KeyCode::Esc => self.cancel_investigation_profile_subdialog(),
+                    KeyCode::Up | KeyCode::Left => {
+                        self.select_previous_investigation_startup();
+                    }
+                    KeyCode::Down | KeyCode::Right | KeyCode::Char(' ') => {
+                        self.select_next_investigation_startup();
+                    }
+                    KeyCode::Enter => self.apply_selected_investigation_startup(),
+                    _ => {}
+                },
+                InvestigationProfilesView::NameInput { .. } => match key.code {
+                    KeyCode::Esc => self.cancel_investigation_profile_subdialog(),
+                    KeyCode::Enter => self.commit_investigation_profile_name_input(),
+                    KeyCode::Backspace => self.pop_investigation_profile_name_char(),
+                    KeyCode::Delete => self.delete_investigation_profile_name_char(),
+                    KeyCode::Left => self.move_investigation_profile_name_cursor_left(),
+                    KeyCode::Right => self.move_investigation_profile_name_cursor_right(),
+                    KeyCode::Home => self.move_investigation_profile_name_cursor_home(),
+                    KeyCode::End => self.move_investigation_profile_name_cursor_end(),
                     KeyCode::Char(ch)
                         if !key.modifiers.contains(KeyModifiers::CONTROL)
                             && !key.modifiers.contains(KeyModifiers::ALT) =>
                     {
-                        self.push_tracked_list_name_char(ch);
+                        self.push_investigation_profile_name_char(ch);
                     }
                     _ => {}
                 },
-                TrackedListsView::ConfirmDelete { .. } | TrackedListsView::ConfirmSwitch { .. } => {
-                    match key.code {
-                        KeyCode::Esc | KeyCode::Enter => self.cancel_tracked_list_subdialog(),
-                        KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'y') => {
-                            self.confirm_tracked_list_action();
-                        }
-                        KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'n') => {
-                            self.cancel_tracked_list_subdialog();
-                        }
-                        _ => {}
+                InvestigationProfilesView::ConfirmDelete { .. }
+                | InvestigationProfilesView::ConfirmLoad { .. } => match key.code {
+                    KeyCode::Esc | KeyCode::Enter => self.cancel_investigation_profile_subdialog(),
+                    KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'n') => {
+                        self.cancel_investigation_profile_subdialog()
                     }
-                }
+                    KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'y') => {
+                        self.confirm_investigation_profile_action()
+                    }
+                    _ => {}
+                },
+                InvestigationProfilesView::LoadReport { .. } => match key.code {
+                    KeyCode::Esc | KeyCode::Enter => self.close_investigation_profiles(),
+                    KeyCode::Up => self.scroll_investigation_profile_report_up(1),
+                    KeyCode::Down => self.scroll_investigation_profile_report_down(1),
+                    KeyCode::PageUp => self.scroll_investigation_profile_report_up(
+                        self.investigation_profiles_dialog
+                            .as_ref()
+                            .map(|dialog| dialog.scroll.page_size)
+                            .unwrap_or(1),
+                    ),
+                    KeyCode::PageDown => self.scroll_investigation_profile_report_down(
+                        self.investigation_profiles_dialog
+                            .as_ref()
+                            .map(|dialog| dialog.scroll.page_size)
+                            .unwrap_or(1),
+                    ),
+                    KeyCode::Home => self.scroll_investigation_profile_report_up(usize::MAX),
+                    KeyCode::End => self.scroll_investigation_profile_report_down(usize::MAX),
+                    _ => {}
+                },
             }
             return Ok(());
         }
@@ -820,7 +792,7 @@ impl App {
         }
 
         if is_ctrl_t(key) {
-            self.open_tracked_lists();
+            self.open_investigation_profiles();
             return Ok(());
         }
         if self.focused_panel == FocusedPanel::Processes && is_shift_t(key) {
@@ -1531,43 +1503,65 @@ impl App {
             return;
         }
 
-        if let Some(view) = self.tracked_lists_view().cloned() {
-            if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
-                return;
-            }
-            match view {
-                TrackedListsView::Browse => {
-                    if let Some(index) = tracked_list_index_at(
+        if let Some(view) = self.investigation_profiles_view().cloned() {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if matches!(view, InvestigationProfilesView::Browse) =>
+                {
+                    if let Some(index) = investigation_profile_index_at(
                         screen_area,
                         mouse.column,
                         mouse.row,
-                        self.tracked_lists_scroll_offset(),
-                        self.tracked_lists_entry_count(),
+                        self.investigation_profiles_scroll_offset(),
+                        self.investigation_profiles_entry_count(),
                     ) {
-                        self.focus_tracked_lists_list();
-                        self.select_tracked_list_index(index);
-                        if index == 0 {
-                            self.load_selected_tracked_list();
-                        }
+                        self.select_investigation_profile_index(index);
                         return;
                     }
-                    if tracked_list_save_name_area_for_screen(screen_area)
-                        .is_some_and(|area| contains_point(area, mouse.column, mouse.row))
-                    {
-                        self.focus_tracked_lists_save_name();
-                        return;
-                    }
-                    if let Some(startup) =
-                        tracked_list_startup_at_for_screen(screen_area, mouse.column, mouse.row)
-                    {
-                        self.focus_tracked_lists_startup();
-                        self.set_tracked_list_startup(startup);
-                        return;
+                    if investigation_profile_startup_link_at_for_screen(
+                        screen_area,
+                        mouse.column,
+                        mouse.row,
+                        self.investigation_profiles_entry_count(),
+                    ) {
+                        self.open_investigation_startup();
                     }
                 }
-                TrackedListsView::NameInput { .. }
-                | TrackedListsView::ConfirmDelete { .. }
-                | TrackedListsView::ConfirmSwitch { .. } => {}
+                MouseEventKind::Down(MouseButton::Left)
+                    if matches!(view, InvestigationProfilesView::Startup { .. }) =>
+                {
+                    if let Some(startup) = investigation_profile_startup_at_for_screen(
+                        screen_area,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        self.select_investigation_startup(startup);
+                        self.apply_selected_investigation_startup();
+                    }
+                }
+                MouseEventKind::ScrollUp
+                    if matches!(view, InvestigationProfilesView::LoadReport { .. }) =>
+                {
+                    self.scroll_investigation_profile_report_up(1);
+                }
+                MouseEventKind::ScrollDown
+                    if matches!(view, InvestigationProfilesView::LoadReport { .. }) =>
+                {
+                    self.scroll_investigation_profile_report_down(1);
+                }
+                MouseEventKind::ScrollUp
+                    if matches!(view, InvestigationProfilesView::Startup { .. }) =>
+                {
+                    self.select_previous_investigation_startup();
+                }
+                MouseEventKind::ScrollDown
+                    if matches!(view, InvestigationProfilesView::Startup { .. }) =>
+                {
+                    self.select_next_investigation_startup();
+                }
+                MouseEventKind::ScrollUp => self.move_investigation_profile_selection_up(1),
+                MouseEventKind::ScrollDown => self.move_investigation_profile_selection_down(1),
+                _ => {}
             }
             return;
         }

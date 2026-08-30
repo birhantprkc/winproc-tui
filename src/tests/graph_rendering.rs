@@ -416,12 +416,10 @@ fn panel_and_dialog_title_names_are_uppercase_and_bold_in_all_color_schemes() {
         assert_dialog_title_style(&logs, "LOGS", theme);
         app.show_log_list = false;
 
-        app.open_tracked_lists();
-        let tracked_lists = render_app_to_buffer(&app, screen.width, screen.height);
-        assert_dialog_title_style(&tracked_lists, "TRACKING LISTS", theme);
-        assert_title_style(&tracked_lists, "LOAD TRACKING LIST", theme.border);
-        assert_title_style(&tracked_lists, "SAVE CURRENT TRACKING LIST", theme.border);
-        app.close_tracked_lists();
+        app.open_investigation_profiles();
+        let profiles = render_app_to_buffer(&app, screen.width, screen.height);
+        assert_dialog_title_style(&profiles, "INVESTIGATION PROFILES", theme);
+        app.close_investigation_profiles();
 
         app.show_display_area_warning = true;
         let warning = render_app_to_buffer(&app, screen.width, screen.height);
@@ -471,11 +469,11 @@ fn dialog_shortcut_guidance_is_separated_from_content_by_a_blank_row() {
         "Enter/Esc Close",
     ));
 
-    let mut tracked_lists = make_test_app(3, 10);
-    tracked_lists.open_tracked_lists();
+    let mut profiles = make_test_app(3, 10);
+    profiles.open_investigation_profiles();
     cases.push((
-        "tracking-lists",
-        render_app_to_buffer(&tracked_lists, screen.width, screen.height),
+        "investigation-profiles",
+        render_app_to_buffer(&profiles, screen.width, screen.height),
         "↑/↓ Select  Enter Load",
     ));
 
@@ -802,15 +800,15 @@ fn long_graph_target_keeps_remove_button_visible_at_narrow_width() {
 }
 
 #[test]
-fn ctrl_o_is_unassigned() {
+fn ctrl_t_opens_investigation_profiles() {
     let mut app = make_test_app(1, 10);
-    let status = app.status.clone();
 
-    app.on_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL))
+    app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL))
         .unwrap();
 
-    assert_eq!(app.status, status);
-    assert!(!app.has_modal_focus());
+    assert_eq!(app.status, "Investigation Profiles");
+    assert!(app.investigation_profiles_dialog.is_some());
+    assert!(app.has_modal_focus());
 }
 
 #[test]

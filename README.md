@@ -72,7 +72,7 @@ Move focus to a Graph or Samples and choose a sample with `Left` / `Right`. Pres
 ### Track and Record Processes
 
 1. Select a Process or PID cell and press `Space`, double-click it, or press `t` to add that process name to the working Tracking List.
-2. Use `Ctrl+T` when you want to save or load named Tracking Lists.
+2. Use `Ctrl+T` to save or load an Investigation Profile containing the Tracking List, process-table setup, Graph workspace, and Recording interval.
 3. Press `Ctrl+R`, choose a log path and a `1s`, `2s`, `5s`, or `10s` recording interval, then start recording.
 4. Press `Ctrl+R` again and confirm with `y` to stop. `Enter`, `Esc`, or `n` continues recording.
 5. Press `Ctrl+L` to reopen a saved log for inspection.
@@ -86,12 +86,12 @@ Use `Tab` / `Shift+Tab` to move between panels and the arrow keys to select rows
 - **Live monitoring**: Shows system memory pressure, per-adapter GPU load and memory, network and disk activity, CPU activity, and detailed per-process metrics.
 - **Process tree**: Switches the Processes table between a sortable flat list and the parent-child forest captured in each live snapshot, with filtering and subtree collapse.
 - **Graphs and A/B comparison**: Keeps up to 16 metrics in an ordered workspace with synchronized Samples, then compares any two exact sample times.
-- **Tracking Lists**: Saves named sets of process names, supports a Tracked-only view, and retains the latest values after a tracked process exits.
+- **Investigation Profiles**: Saves the Tracking List, Tracked-only and process-table setup, Graph workspace, and Recording interval as one reusable investigation. Tracked processes retain their latest values after exit.
 - **.NET metrics**: Automatically detects live .NET 8/9/10 processes and shows managed-runtime metrics, with selected heap metrics for .NET Framework 4.8.
 - **Process Info**: Brings metrics, image and runtime details, open files, DLLs, and environment variables together for the selected process.
 - **Recording and Log view**: Records system metrics and matching processes as JSON Lines, then reopens them in the same Processes, Graph, Samples, and A/B views.
 
-Layouts, visible columns, sorting, the Processes Flat/Tree preference, and Tracking Lists are restored on the next launch. Filter input is not saved.
+The complete last investigation is restored on the next launch, or startup can open a chooser for a saved Investigation Profile or an empty investigation. Filter input and runtime process identities are not saved.
 
 ## When to Use It
 

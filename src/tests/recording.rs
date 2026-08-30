@@ -173,8 +173,8 @@ fn recording_rejects_tracking_list_changes_but_allows_tracked_only() {
         .unwrap();
     app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL))
         .unwrap();
-    assert!(app.show_recording_tracking_fixed);
-    assert!(app.tracked_lists_dialog.is_none());
+    assert!(!app.show_recording_tracking_fixed);
+    assert!(app.investigation_profiles_dialog.is_some());
 
     app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
         .unwrap();

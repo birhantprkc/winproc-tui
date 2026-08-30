@@ -1,12 +1,10 @@
 use super::support::{
     add_test_graph, buffer_to_text, find_text_position, make_test_app, make_test_app_with_worker,
     record_tracked_process_history_samples, render_app_to_buffer, render_app_to_text,
-    selected_process_history_sample_count, test_snapshot, track_process_name, unique_config_path,
+    selected_process_history_sample_count, test_snapshot, track_process_name,
 };
 use crate::app;
 use crate::app::{DetailsMetric, FocusedPanel, GraphSlot, VisibleProcessEntry};
-use crate::config;
-use crate::config::AppConfig;
 use crate::model;
 use crate::model::{ColumnPreset, ProcessIdentity};
 use crate::samplers::{CollectSnapshotResult, SamplingWorker};
@@ -102,215 +100,15 @@ fn f5_does_not_remove_selected_process_from_tracked_list() {
 }
 
 #[test]
-fn ctrl_t_opens_tracked_lists_without_toggling_tracked_only() {
+fn ctrl_t_opens_profiles_without_toggling_tracked_only() {
     let mut app = make_test_app(1, 10);
-    app.watch_list = vec!["proc-0".to_string()];
-    app.normalized_watch_names = ["proc-0".to_string()].into_iter().collect();
+    let tracked_only = app.watch_enabled;
 
     app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL))
         .unwrap();
 
-    assert!(app.tracked_lists_dialog.is_some());
-    assert!(!app.watch_enabled);
-}
-
-#[test]
-fn save_current_tracked_list_creates_named_list_without_changing_t_semantics() {
-    let mut app = make_test_app(1, 10);
-    app.watch_list = vec!["proc-0".to_string(), "worker.exe".to_string()];
-    app.normalized_watch_names = ["proc-0".to_string(), "worker.exe".to_string()]
-        .into_iter()
-        .collect();
-    app.open_tracked_lists();
-    app.focus_tracked_lists_save_name();
-    for ch in "API debug".chars() {
-        app.push_tracked_list_save_name_char(ch);
-    }
-
-    app.save_current_tracked_list();
-
-    assert_eq!(
-        app.runtime.active_tracked_list.as_deref(),
-        Some("API debug")
-    );
-    assert_eq!(app.runtime.saved_tracked_lists.len(), 1);
-    assert_eq!(
-        app.runtime.saved_tracked_lists[0].processes,
-        vec!["proc-0", "worker.exe"]
-    );
-    assert!(!app.active_tracked_list_dirty());
-
-    app.close_tracked_lists();
-    app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE))
-        .unwrap();
-    assert!(app.active_tracked_list_dirty());
-}
-
-#[test]
-fn save_current_tracked_list_persists_immediately() {
-    let mut app = make_test_app(1, 10);
-    let path = unique_config_path("tracked-list-save-as");
-    let _ = std::fs::remove_file(&path);
-    app.runtime.config_path = Some(path.clone());
-    app.watch_list = vec!["api.exe".to_string(), "worker.exe".to_string()];
-    app.normalized_watch_names = ["api.exe".to_string(), "worker.exe".to_string()]
-        .into_iter()
-        .collect();
-    app.open_tracked_lists();
-    app.focus_tracked_lists_save_name();
-    for ch in "API".chars() {
-        app.push_tracked_list_save_name_char(ch);
-    }
-
-    app.save_current_tracked_list();
-
-    let saved: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    let _ = std::fs::remove_file(&path);
-    assert_eq!(saved.tracking.active_list.as_deref(), Some("API"));
-    assert_eq!(saved.tracked_lists.len(), 1);
-    assert_eq!(
-        saved.tracked_lists[0].processes,
-        vec!["api.exe", "worker.exe"]
-    );
-}
-
-#[test]
-fn save_current_tracked_list_defaults_to_active_name_and_updates_it() {
-    let mut app = make_test_app(1, 10);
-    app.runtime.active_tracked_list = Some("API".to_string());
-    app.runtime.saved_tracked_lists = vec![config::SavedTrackedList {
-        name: "API".to_string(),
-        processes: vec!["old.exe".to_string()],
-    }];
-    app.watch_list = vec!["api.exe".to_string(), "worker.exe".to_string()];
-    app.normalized_watch_names = ["api.exe".to_string(), "worker.exe".to_string()]
-        .into_iter()
-        .collect();
-    app.open_tracked_lists();
-
-    let (draft, cursor, error) = app
-        .tracked_lists_save_name()
-        .expect("save-name input should be available");
-    assert_eq!(draft, "API");
-    assert_eq!(cursor, 3);
-    assert_eq!(error, None);
-
-    app.save_current_tracked_list();
-
-    assert_eq!(app.runtime.saved_tracked_lists.len(), 1);
-    assert_eq!(
-        app.runtime.saved_tracked_lists[0].processes,
-        vec!["api.exe", "worker.exe"]
-    );
-    assert_eq!(app.runtime.active_tracked_list.as_deref(), Some("API"));
-    assert!(!app.active_tracked_list_dirty());
-    let rendered = render_app_to_text(&app, 120, 45);
-    assert!(rendered.contains("Saved: API · 2 processes"), "{rendered}");
-}
-
-#[test]
-fn loading_named_tracked_list_replaces_active_working_copy() {
-    let mut app = make_test_app(1, 10);
-    app.watch_list = vec!["old.exe".to_string()];
-    app.normalized_watch_names = ["old.exe".to_string()].into_iter().collect();
-    app.runtime.saved_tracked_lists = vec![config::SavedTrackedList {
-        name: "API".to_string(),
-        processes: vec!["api.exe".to_string(), "worker.exe".to_string()],
-    }];
-    app.open_tracked_lists();
-    app.move_tracked_list_selection_down(1);
-
-    app.load_selected_tracked_list();
-
-    assert_eq!(app.watch_list, vec!["api.exe", "worker.exe"]);
-    assert_eq!(app.runtime.active_tracked_list.as_deref(), Some("API"));
-    assert!(app.tracked_lists_dialog.is_none());
-    assert!(!app.active_tracked_list_dirty());
-}
-
-#[test]
-fn loading_named_tracked_list_confirms_before_discarding_older_history() {
-    let mut app = make_test_app(1, 10);
-    app.snapshot.processes[0].name = "old.exe".to_string();
-    track_process_name(&mut app, "old.exe");
-    record_tracked_process_history_samples(&mut app, "old.exe", 121);
-    app.runtime.saved_tracked_lists = vec![config::SavedTrackedList {
-        name: "API".to_string(),
-        processes: vec!["api.exe".to_string()],
-    }];
-    app.open_tracked_lists();
-    app.move_tracked_list_selection_down(1);
-
-    app.load_selected_tracked_list();
-
-    let Some(app::TrackedListsView::ConfirmSwitch { pending }) = app.tracked_lists_view() else {
-        panic!("expected tracked-list switch confirmation");
-    };
-    assert_eq!(pending.removed_name_count, 1);
-    assert_eq!(pending.affected_name_count, 1);
-    assert_eq!(pending.discarded_sample_count, 1);
-    assert_eq!(app.watch_list, vec!["old.exe"]);
-    assert_eq!(selected_process_history_sample_count(&app, "old.exe"), 121);
-    let rendered = render_app_to_text(&app, 120, 45);
-    assert!(
-        rendered.contains("Enter/Esc/n Cancel  y Load"),
-        "{rendered}"
-    );
-
-    app.confirm_tracked_list_action();
-
-    assert_eq!(app.watch_list, vec!["api.exe"]);
-    assert_eq!(app.runtime.active_tracked_list.as_deref(), Some("API"));
-    assert_eq!(selected_process_history_sample_count(&app, "old.exe"), 120);
-    assert!(app.tracked_lists_dialog.is_none());
-}
-
-#[test]
-fn loading_builtin_empty_confirms_before_discarding_older_history() {
-    let mut app = make_test_app(1, 10);
-    app.snapshot.processes[0].name = "old.exe".to_string();
-    track_process_name(&mut app, "old.exe");
-    record_tracked_process_history_samples(&mut app, "old.exe", 121);
-    app.watch_enabled = true;
-    app.open_tracked_lists();
-
-    app.load_selected_tracked_list();
-
-    let Some(app::TrackedListsView::ConfirmSwitch { pending }) = app.tracked_lists_view() else {
-        panic!("expected built-in empty switch confirmation");
-    };
-    assert_eq!(pending.target_name, None);
-    assert!(pending.target_processes.is_empty());
-    assert_eq!(pending.discarded_sample_count, 1);
-    assert_eq!(app.watch_list, vec!["old.exe"]);
-
-    app.confirm_tracked_list_action();
-
-    assert!(app.watch_list.is_empty());
-    assert!(app.watch_enabled);
-    assert_eq!(app.runtime.active_tracked_list, None);
-    assert_eq!(selected_process_history_sample_count(&app, "old.exe"), 120);
-}
-
-#[test]
-fn deleting_active_saved_list_keeps_working_copy_unsaved() {
-    let mut app = make_test_app(1, 10);
-    app.watch_list = vec!["api.exe".to_string()];
-    app.normalized_watch_names = ["api.exe".to_string()].into_iter().collect();
-    app.runtime.active_tracked_list = Some("API".to_string());
-    app.runtime.saved_tracked_lists = vec![config::SavedTrackedList {
-        name: "API".to_string(),
-        processes: vec!["api.exe".to_string()],
-    }];
-    app.open_tracked_lists();
-    app.request_delete_selected_tracked_list();
-
-    app.confirm_tracked_list_action();
-
-    assert!(app.runtime.saved_tracked_lists.is_empty());
-    assert_eq!(app.runtime.active_tracked_list, None);
-    assert_eq!(app.watch_list, vec!["api.exe"]);
-    assert!(app.active_tracked_list_dirty());
+    assert!(app.investigation_profiles_dialog.is_some());
+    assert_eq!(app.watch_enabled, tracked_only);
 }
 
 #[test]
@@ -502,11 +300,6 @@ fn process_table_title_omits_named_list_and_unsaved_marker() {
     let mut app = make_test_app(1, 10);
     app.watch_list = vec!["proc-0".to_string()];
     app.normalized_watch_names = ["proc-0".to_string()].into_iter().collect();
-    app.runtime.active_tracked_list = Some("API".to_string());
-    app.runtime.saved_tracked_lists = vec![config::SavedTrackedList {
-        name: "API".to_string(),
-        processes: vec!["proc-0".to_string()],
-    }];
 
     let saved = render_app_to_text(&app, 120, 30);
     assert!(
@@ -597,7 +390,7 @@ fn selected_process_can_be_removed_from_watch_list() {
 
     app.remove_selected_process_from_watch_list();
 
-    assert!(!app.watch_enabled);
+    assert!(app.watch_enabled);
     assert!(app.watch_list.is_empty());
 }
 

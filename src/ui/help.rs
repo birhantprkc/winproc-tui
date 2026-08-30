@@ -242,7 +242,7 @@ const TRACKING_ROWS: &[HelpItem] = &[
     },
     HelpItem {
         key: "Ctrl+T",
-        label: "Open/load Tracking Lists (Live only)",
+        label: "Open Investigation Profiles",
     },
 ];
 

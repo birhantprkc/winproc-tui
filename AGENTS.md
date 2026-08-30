@@ -136,8 +136,8 @@ git commit -m "<message> (Issue #n)" -m "Closes #n"
 - The config file is `winproc-tui.toml`. It saves session state on exit and restores it on the next launch.
 - Do not save Filter input state to the config file.
 - Treat `tracked_only` as an independent state. Do not infer it from whether the Tracking List is non-empty.
-- Treat the working Tracking List and saved named Tracking Lists as separate state. `Space` changes only the working list; saved definitions change only through explicit Save, Save As, Rename, or Delete actions.
-- When startup mode requires a Tracking List choice, resolve it before the initial sample so tracked-history retention applies from the first capture.
+- Treat the Tracking List as a field of the mutable Current Investigation, not as an independently named object. Investigation Profiles are the only named reusable definitions and change only through explicit Save, Save As, Rename, or Delete actions.
+- When startup mode requires an investigation choice, apply its tracking intent before the initial sample so tracked-history retention applies from the first capture, then resolve Graph templates against that sample.
 
 ## User-Facing Behavior Rules
 
@@ -154,7 +154,7 @@ git commit -m "<message> (Issue #n)" -m "Closes #n"
 - Starting recording must copy the working Tracking List into session-owned recording scope. Session metadata, every frame's `tracked_names`, and process filtering must use that fixed copy.
 - Recording aggregation is session-owned and selectable as `1s`, `2s`, `5s`, or `10s`; Live collection and Live history remain fixed at one second.
 - Aggregated Recording frames average only available values, keep process identities independent, use the final sample timestamp, and flush a partial final window before an explicit stop, quit, or the 24-hour limit.
-- While Recording is active, `t` and `Ctrl+T` must reject Tracking List changes with a visible notice. `Shift+T` remains available because it changes only the independent Tracked-only display.
+- While Recording is active, `t` and tracking-cell `Space` must reject Tracking List changes with a visible notice. `Ctrl+T` still opens Investigation Profiles, but saving or loading investigation state is unavailable; rename and delete remain allowed. `Shift+T` remains available because it changes only the independent Tracked-only display.
 - Recording is unavailable in Log view, and Log view is unavailable during Recording.
 - `Ctrl+R` during Recording must open a stop confirmation where `Enter`, `Esc`, or `n` continues and `y` stops; sampling and recording continue until Stop is confirmed.
 - Stopping recording must write the end record, flush, and close the recording log.
@@ -170,7 +170,7 @@ git commit -m "<message> (Issue #n)" -m "Closes #n"
 - DLL enumeration and file metadata collection must stay on its independent worker and occur only on initial tab activation or explicit refresh, never in normal sampling.
 - Environment remote-memory reads must stay on their independent worker, enforce the 4 MiB limit, never enter recording/export data, and never expose values through status or error text.
 - Log view must not start live Process Info Image, Files, DLL, or Environment collection. Dynamic tabs display their not-recorded state inside the shared Process Info dialog.
-- Loading a named Tracking List may prune older retained history for names removed from the working list. Confirm before discarding those older samples.
+- Loading an Investigation Profile may prune older retained history for names removed from the working Tracking List. Confirm before discarding those older samples.
 
 ## UI / UX Guide
 

@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs,
+    ops::{Deref, DerefMut},
     path::{Path, PathBuf},
 };
 
@@ -24,13 +25,18 @@ pub(crate) fn is_empty_tracked_list_name(name: &str) -> bool {
 #[serde(default)]
 pub(crate) struct AppConfig {
     pub(crate) general: GeneralConfig,
+    #[serde(skip_serializing)]
     pub(crate) graphs: GraphConfig,
     pub(crate) process_table: ProcessTableConfig,
     pub(crate) recording: RecordingConfig,
+    #[serde(skip_serializing)]
     pub(crate) tracking: TrackingConfig,
-    #[serde(alias = "watch", alias = "process")]
+    #[serde(alias = "watch", alias = "process", skip_serializing)]
     pub(crate) tracked: Vec<TrackedConfig>,
+    #[serde(skip_serializing)]
     pub(crate) tracked_lists: Vec<SavedTrackedList>,
+    pub(crate) investigation: Option<InvestigationConfig>,
+    pub(crate) investigation_profiles: Vec<SavedInvestigationProfile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,11 +76,17 @@ impl Default for GraphConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct ProcessTableConfig {
+    #[serde(skip_serializing)]
     pub(crate) view: String,
+    #[serde(skip_serializing)]
     pub(crate) preset: String,
+    #[serde(skip_serializing)]
     pub(crate) columns: Vec<String>,
+    #[serde(skip_serializing)]
     pub(crate) sort_by: String,
+    #[serde(skip_serializing)]
     pub(crate) sort_order: String,
+    #[serde(skip_serializing)]
     pub(crate) tracked_only: bool,
     pub(crate) body_rows: ProcessPanelHeightConfig,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -135,21 +147,30 @@ pub(crate) enum TrackedListStartup {
     StartEmpty,
 }
 
-impl TrackedListStartup {
-    pub(crate) const ALL: [Self; 3] = [Self::ResumeLast, Self::ChooseList, Self::StartEmpty];
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum InvestigationStartup {
+    #[default]
+    ResumeLast,
+    ChooseProfile,
+    StartEmpty,
+}
+
+impl InvestigationStartup {
+    pub(crate) const ALL: [Self; 3] = [Self::ResumeLast, Self::ChooseProfile, Self::StartEmpty];
 
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::ResumeLast => "Resume last",
-            Self::ChooseList => "Choose list",
+            Self::ChooseProfile => "Choose Profile",
             Self::StartEmpty => "Start empty",
         }
     }
 
     pub(crate) const fn next(self) -> Self {
         match self {
-            Self::ResumeLast => Self::ChooseList,
-            Self::ChooseList => Self::StartEmpty,
+            Self::ResumeLast => Self::ChooseProfile,
+            Self::ChooseProfile => Self::StartEmpty,
             Self::StartEmpty => Self::ResumeLast,
         }
     }
@@ -157,8 +178,8 @@ impl TrackedListStartup {
     pub(crate) const fn previous(self) -> Self {
         match self {
             Self::ResumeLast => Self::StartEmpty,
-            Self::ChooseList => Self::ResumeLast,
-            Self::StartEmpty => Self::ChooseList,
+            Self::ChooseProfile => Self::ResumeLast,
+            Self::StartEmpty => Self::ChooseProfile,
         }
     }
 }
@@ -175,6 +196,90 @@ pub(crate) struct SavedTrackedList {
     pub(crate) processes: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct InvestigationStateConfig {
+    pub(crate) tracked_names: Vec<String>,
+    pub(crate) tracked_only: bool,
+    pub(crate) process_view: String,
+    pub(crate) process_columns: Vec<String>,
+    pub(crate) sort_by: String,
+    pub(crate) sort_order: String,
+    pub(crate) graphs: Vec<InvestigationGraphConfig>,
+    pub(crate) graph_columns: u8,
+    pub(crate) graph_time_span_seconds: u32,
+    pub(crate) samples: bool,
+    pub(crate) delta: bool,
+    pub(crate) y_axis_zero_min: bool,
+    pub(crate) recording_interval_seconds: u64,
+}
+
+impl Default for InvestigationStateConfig {
+    fn default() -> Self {
+        Self {
+            tracked_names: Vec::new(),
+            tracked_only: false,
+            process_view: ProcessViewMode::Flat.label().to_string(),
+            process_columns: ColumnPreset::Default
+                .effective_columns()
+                .iter()
+                .map(|column| column.label().to_string())
+                .collect(),
+            sort_by: MetricColumn::WorksetPrivateBytes.label().to_string(),
+            sort_order: SortDirection::Desc.label().to_string(),
+            graphs: Vec::new(),
+            graph_columns: 0,
+            graph_time_span_seconds: 60,
+            samples: true,
+            delta: true,
+            y_axis_zero_min: true,
+            recording_interval_seconds: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct InvestigationConfig {
+    pub(crate) startup: InvestigationStartup,
+    pub(crate) active_profile: Option<String>,
+    #[serde(flatten)]
+    pub(crate) last: InvestigationStateConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct SavedInvestigationProfile {
+    pub(crate) name: String,
+    #[serde(flatten)]
+    pub(crate) investigation: InvestigationStateConfig,
+}
+
+impl Deref for SavedInvestigationProfile {
+    type Target = InvestigationStateConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.investigation
+    }
+}
+
+impl DerefMut for SavedInvestigationProfile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.investigation
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct InvestigationGraphConfig {
+    pub(crate) kind: String,
+    pub(crate) metric: String,
+    pub(crate) display_mode: String,
+    pub(crate) process_name: Option<String>,
+    pub(crate) executable_path: Option<String>,
+    pub(crate) gpu_adapter_name: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeConfig {
     pub(crate) mouse: bool,
@@ -182,8 +287,12 @@ pub(crate) struct RuntimeConfig {
     pub(crate) recording_last_dir: Option<PathBuf>,
     pub(crate) initial_theme: String,
     pub(crate) initial_graph_slot_layout: GraphSlotLayout,
+    pub(crate) initial_graph_templates: Vec<InvestigationGraphConfig>,
+    pub(crate) initial_graph_time_span_seconds: u32,
+    pub(crate) initial_graph_y_axis_zero_min: bool,
     pub(crate) initial_show_samples_panel: bool,
     pub(crate) initial_show_sample_delta: bool,
+    pub(crate) initial_recording_interval_seconds: u64,
     pub(crate) column_preset: ColumnPreset,
     pub(crate) process_columns: Vec<MetricColumn>,
     pub(crate) process_column_widths: ProcessColumnWidths,
@@ -192,9 +301,9 @@ pub(crate) struct RuntimeConfig {
     pub(crate) initial_process_view_mode: ProcessViewMode,
     pub(crate) initial_process_panel_height: ProcessPanelHeight,
     pub(crate) process_filters: Vec<String>,
-    pub(crate) tracked_list_startup: TrackedListStartup,
-    pub(crate) active_tracked_list: Option<String>,
-    pub(crate) saved_tracked_lists: Vec<SavedTrackedList>,
+    pub(crate) investigation_startup: InvestigationStartup,
+    pub(crate) active_investigation_profile: Option<String>,
+    pub(crate) saved_investigation_profiles: Vec<SavedInvestigationProfile>,
     pub(crate) sampling_options: SamplingOptions,
 }
 
@@ -225,14 +334,74 @@ pub(crate) fn load_config(path: &Path) -> Result<AppConfig> {
     }
 }
 
-pub(crate) fn build_runtime_config(config: AppConfig) -> Result<RuntimeConfig> {
-    let column_preset = config
-        .process_table
-        .preset
-        .parse()
-        .unwrap_or(ColumnPreset::Default);
-    let process_columns = parse_columns(&config.process_table.columns)
-        .unwrap_or_else(|| column_preset.effective_columns().to_vec());
+pub(crate) fn prepare_app_config(config: &mut AppConfig) {
+    let legacy_state = legacy_investigation_state(config);
+    let legacy_startup = match config.tracking.startup {
+        TrackedListStartup::ResumeLast => InvestigationStartup::ResumeLast,
+        TrackedListStartup::ChooseList => InvestigationStartup::ChooseProfile,
+        TrackedListStartup::StartEmpty => InvestigationStartup::StartEmpty,
+    };
+    let legacy_active_list = config.tracking.active_list.clone();
+
+    let mut profiles =
+        normalize_saved_investigation_profiles(std::mem::take(&mut config.investigation_profiles));
+    let mut migrated_names = Vec::<(String, String)>::new();
+    for list in normalize_saved_tracked_lists(std::mem::take(&mut config.tracked_lists)) {
+        let migrated_name = unique_migrated_profile_name(&list.name, &profiles);
+        let mut investigation = legacy_state.clone();
+        investigation.tracked_names = list.processes;
+        profiles.push(SavedInvestigationProfile {
+            name: migrated_name.clone(),
+            investigation: normalize_investigation_state(investigation),
+        });
+        migrated_names.push((list.name, migrated_name));
+    }
+
+    let mut investigation = config.investigation.take().unwrap_or_else(|| {
+        let active_profile = legacy_active_list.as_deref().and_then(|active| {
+            migrated_names
+                .iter()
+                .find(|(legacy, _)| legacy.eq_ignore_ascii_case(active))
+                .map(|(_, migrated)| migrated.clone())
+        });
+        InvestigationConfig {
+            startup: legacy_startup,
+            active_profile,
+            last: if legacy_startup == InvestigationStartup::StartEmpty {
+                InvestigationStateConfig::default()
+            } else {
+                legacy_state
+            },
+        }
+    });
+    investigation.last = normalize_investigation_state(investigation.last);
+    investigation.active_profile = investigation
+        .active_profile
+        .map(|name| name.trim().to_string())
+        .filter(|name| {
+            profiles
+                .iter()
+                .any(|profile| profile.name.eq_ignore_ascii_case(name))
+        });
+    config.investigation = Some(investigation);
+    config.investigation_profiles = profiles;
+}
+
+pub(crate) fn build_runtime_config(mut config: AppConfig) -> Result<RuntimeConfig> {
+    prepare_app_config(&mut config);
+    let mut investigation = config
+        .investigation
+        .take()
+        .expect("prepared config must contain an investigation");
+    let state = if investigation.startup == InvestigationStartup::StartEmpty {
+        investigation.active_profile = None;
+        InvestigationStateConfig::default()
+    } else {
+        normalize_investigation_state(investigation.last)
+    };
+    let process_columns = parse_columns(&state.process_columns)
+        .unwrap_or_else(|| ColumnPreset::Default.effective_columns().to_vec());
+    let column_preset = matching_column_preset(&process_columns);
     let process_column_widths =
         ProcessColumnWidths::from_overrides(config.process_table.column_widths.iter().filter_map(
             |(label, width)| {
@@ -245,60 +414,40 @@ pub(crate) fn build_runtime_config(config: AppConfig) -> Result<RuntimeConfig> {
                 })
             },
         ));
-    let saved_tracked_lists = normalize_saved_tracked_lists(config.tracked_lists);
-    let process_filters = if config.tracking.startup == TrackedListStartup::StartEmpty {
-        Vec::new()
-    } else {
-        config.tracked.into_iter().map(|item| item.name).collect()
-    };
-    let active_tracked_list = if config.tracking.startup == TrackedListStartup::StartEmpty {
-        None
-    } else {
-        config
-            .tracking
-            .active_list
-            .filter(|name| !is_empty_tracked_list_name(name))
-    };
-
     Ok(RuntimeConfig {
         mouse: config.general.mouse,
         config_path: None,
         recording_last_dir: config.recording.last_dir,
         initial_theme: config.general.theme,
-        initial_graph_slot_layout: match config.graphs.columns {
+        initial_graph_slot_layout: match state.graph_columns {
             1 => GraphSlotLayout::OneColumn,
             2 => GraphSlotLayout::TwoColumns,
             3 => GraphSlotLayout::ThreeColumns,
             _ => GraphSlotLayout::Auto,
         },
-        initial_show_samples_panel: config.graphs.samples,
-        initial_show_sample_delta: config.graphs.delta,
+        initial_graph_templates: state.graphs,
+        initial_graph_time_span_seconds: state.graph_time_span_seconds,
+        initial_graph_y_axis_zero_min: state.y_axis_zero_min,
+        initial_show_samples_panel: state.samples,
+        initial_show_sample_delta: state.delta,
+        initial_recording_interval_seconds: state.recording_interval_seconds,
         column_preset,
         process_columns,
         process_column_widths,
         sort: SortSpec {
-            column: config
-                .process_table
+            column: state
                 .sort_by
                 .parse()
                 .unwrap_or(SortColumn::Metric(MetricColumn::WorksetPrivateBytes)),
-            direction: config
-                .process_table
-                .sort_order
-                .parse()
-                .unwrap_or(SortDirection::Desc),
+            direction: state.sort_order.parse().unwrap_or(SortDirection::Desc),
         },
-        initial_tracked_only: config.process_table.tracked_only,
-        initial_process_view_mode: config
-            .process_table
-            .view
-            .parse()
-            .unwrap_or(ProcessViewMode::Flat),
+        initial_tracked_only: state.tracked_only,
+        initial_process_view_mode: state.process_view.parse().unwrap_or(ProcessViewMode::Flat),
         initial_process_panel_height: process_panel_height(config.process_table.body_rows),
-        process_filters,
-        tracked_list_startup: config.tracking.startup,
-        active_tracked_list,
-        saved_tracked_lists,
+        process_filters: state.tracked_names,
+        investigation_startup: investigation.startup,
+        active_investigation_profile: investigation.active_profile,
+        saved_investigation_profiles: config.investigation_profiles,
         sampling_options: SamplingOptions {
             collect_gpu: true,
             collect_gui_resources: true,
@@ -317,22 +466,14 @@ pub(crate) fn write_app_config(path: &Path, app: &App) -> Result<()> {
             mouse: app.runtime.mouse,
             theme: app.theme().name.to_string(),
         },
-        graphs: GraphConfig {
-            columns: app.graph_slot_layout.columns(),
-            samples: app.show_samples_panel,
-            delta: app.show_sample_delta,
-        },
+        graphs: GraphConfig::default(),
         process_table: ProcessTableConfig {
-            view: app.process_view_mode.label().to_string(),
-            preset: app.column_preset.label().to_string(),
-            columns: app
-                .process_columns
-                .iter()
-                .map(|column| column.label().to_string())
-                .collect(),
-            sort_by: app.sort.column.label().to_string(),
-            sort_order: app.sort.direction.label().to_string(),
-            tracked_only: app.watch_enabled,
+            view: ProcessViewMode::Flat.label().to_string(),
+            preset: ColumnPreset::Default.label().to_string(),
+            columns: Vec::new(),
+            sort_by: String::new(),
+            sort_order: String::new(),
+            tracked_only: false,
             body_rows: match app.process_panel_height {
                 ProcessPanelHeight::Auto => ProcessPanelHeightConfig::default(),
                 ProcessPanelHeight::Manual(rows) => {
@@ -348,20 +489,17 @@ pub(crate) fn write_app_config(path: &Path, app: &App) -> Result<()> {
         recording: RecordingConfig {
             last_dir: app.recording_last_dir.clone(),
         },
-        tracking: TrackingConfig {
-            startup: app.runtime.tracked_list_startup,
-            active_list: app
-                .runtime
-                .active_tracked_list
-                .clone()
-                .filter(|name| !is_empty_tracked_list_name(name)),
-        },
-        tracked: app
-            .watch_list
-            .iter()
-            .map(|name| TrackedConfig { name: name.clone() })
-            .collect(),
-        tracked_lists: normalize_saved_tracked_lists(app.runtime.saved_tracked_lists.clone()),
+        tracking: TrackingConfig::default(),
+        tracked: Vec::new(),
+        tracked_lists: Vec::new(),
+        investigation: Some(InvestigationConfig {
+            startup: app.runtime.investigation_startup,
+            active_profile: app.active_investigation_profile.clone(),
+            last: app.capture_investigation_state(),
+        }),
+        investigation_profiles: normalize_saved_investigation_profiles(
+            app.runtime.saved_investigation_profiles.clone(),
+        ),
     };
     let content = toml::to_string_pretty(&config)?;
     fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))
@@ -383,6 +521,156 @@ fn normalize_saved_tracked_lists(lists: Vec<SavedTrackedList>) -> Vec<SavedTrack
         normalized.push(list);
     }
     normalized
+}
+
+fn normalize_saved_investigation_profiles(
+    profiles: Vec<SavedInvestigationProfile>,
+) -> Vec<SavedInvestigationProfile> {
+    let mut normalized = Vec::<SavedInvestigationProfile>::new();
+    for mut profile in profiles {
+        profile.name = profile.name.trim().to_string();
+        if profile.name.is_empty()
+            || normalized
+                .iter()
+                .any(|saved| saved.name.eq_ignore_ascii_case(&profile.name))
+        {
+            continue;
+        }
+        profile.investigation = normalize_investigation_state(profile.investigation);
+        normalized.push(profile);
+    }
+    normalized
+}
+
+fn legacy_investigation_state(config: &AppConfig) -> InvestigationStateConfig {
+    let column_preset = config
+        .process_table
+        .preset
+        .parse()
+        .unwrap_or(ColumnPreset::Default);
+    let columns = parse_columns(&config.process_table.columns)
+        .unwrap_or_else(|| column_preset.effective_columns().to_vec());
+    normalize_investigation_state(InvestigationStateConfig {
+        tracked_names: config
+            .tracked
+            .iter()
+            .map(|tracked| tracked.name.clone())
+            .collect(),
+        tracked_only: config.process_table.tracked_only,
+        process_view: config.process_table.view.clone(),
+        process_columns: columns
+            .iter()
+            .map(|column| column.label().to_string())
+            .collect(),
+        sort_by: config.process_table.sort_by.clone(),
+        sort_order: config.process_table.sort_order.clone(),
+        graphs: Vec::new(),
+        graph_columns: config.graphs.columns,
+        graph_time_span_seconds: 60,
+        samples: config.graphs.samples,
+        delta: config.graphs.delta,
+        y_axis_zero_min: true,
+        recording_interval_seconds: 1,
+    })
+}
+
+fn normalize_investigation_state(mut state: InvestigationStateConfig) -> InvestigationStateConfig {
+    state.tracked_names = dedupe_process_names(state.tracked_names);
+    state.process_view = state
+        .process_view
+        .parse::<ProcessViewMode>()
+        .unwrap_or(ProcessViewMode::Flat)
+        .label()
+        .to_string();
+    state.process_columns = parse_columns(&state.process_columns)
+        .unwrap_or_else(|| ColumnPreset::Default.effective_columns().to_vec())
+        .iter()
+        .map(|column| column.label().to_string())
+        .collect();
+    state.sort_by = state
+        .sort_by
+        .parse::<SortColumn>()
+        .ok()
+        .and_then(|column| match column {
+            SortColumn::Metric(metric) if !metric.is_selectable() => None,
+            _ => Some(column.label().to_string()),
+        })
+        .unwrap_or_else(|| MetricColumn::WorksetPrivateBytes.label().to_string());
+    state.sort_order = state
+        .sort_order
+        .parse::<SortDirection>()
+        .unwrap_or(SortDirection::Desc)
+        .label()
+        .to_string();
+    state.graph_columns = match state.graph_columns {
+        1..=3 => state.graph_columns,
+        _ => 0,
+    };
+    state.graph_time_span_seconds = state.graph_time_span_seconds.clamp(60, 7_200);
+    if ![1, 2, 5, 10].contains(&state.recording_interval_seconds) {
+        state.recording_interval_seconds = 1;
+    }
+    for graph in &mut state.graphs {
+        graph.kind = graph.kind.trim().to_ascii_lowercase();
+        graph.metric = graph.metric.trim().to_ascii_lowercase();
+        graph.display_mode = match graph.display_mode.trim().to_ascii_lowercase().as_str() {
+            "ma" | "ma5" | "moving_average_5" => "ma5".to_string(),
+            _ => "raw".to_string(),
+        };
+        graph.process_name = trimmed_option(graph.process_name.take());
+        graph.executable_path = trimmed_option(graph.executable_path.take());
+        graph.gpu_adapter_name = trimmed_option(graph.gpu_adapter_name.take());
+    }
+    state
+}
+
+fn unique_migrated_profile_name(
+    legacy_name: &str,
+    profiles: &[SavedInvestigationProfile],
+) -> String {
+    if !profiles
+        .iter()
+        .any(|profile| profile.name.eq_ignore_ascii_case(legacy_name))
+    {
+        return legacy_name.to_string();
+    }
+    let base = format!("{legacy_name} (Tracking List)");
+    if !profiles
+        .iter()
+        .any(|profile| profile.name.eq_ignore_ascii_case(&base))
+    {
+        return base;
+    }
+    for suffix in 2_u32.. {
+        let candidate = format!("{legacy_name} (Tracking List {suffix})");
+        if !profiles
+            .iter()
+            .any(|profile| profile.name.eq_ignore_ascii_case(&candidate))
+        {
+            return candidate;
+        }
+    }
+    unreachable!("profile suffix space exhausted")
+}
+
+fn matching_column_preset(columns: &[MetricColumn]) -> ColumnPreset {
+    [
+        ColumnPreset::Default,
+        ColumnPreset::Memory,
+        ColumnPreset::Resources,
+        ColumnPreset::DotNet,
+        ColumnPreset::Gpu,
+        ColumnPreset::Io,
+    ]
+    .into_iter()
+    .find(|preset| preset.effective_columns() == columns)
+    .unwrap_or(ColumnPreset::Custom)
+}
+
+fn trimmed_option(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn dedupe_process_names(names: Vec<String>) -> Vec<String> {

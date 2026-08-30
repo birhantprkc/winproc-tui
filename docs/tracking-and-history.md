@@ -1,6 +1,6 @@
 # Tracking and Live History
 
-This document defines how `winproc-tui` represents tracking intent, process identity, named Tracking Lists, and bounded Live history. Metric meanings remain in [metrics.md](metrics.md), Graph ownership remains in [graph-workspace.md](graph-workspace.md), and Recording scope remains in [recording-and-log-view.md](recording-and-log-view.md).
+This document defines how `winproc-tui` represents investigation state, tracking intent, process identity, Investigation Profiles, and bounded Live history. Metric meanings remain in [metrics.md](metrics.md), Graph ownership remains in [graph-workspace.md](graph-workspace.md), and Recording scope remains in [recording-and-log-view.md](recording-and-log-view.md).
 
 ## Concepts
 
@@ -8,30 +8,33 @@ This document defines how `winproc-tui` represents tracking intent, process iden
 |---|---|
 | Tracking List entry | A case-insensitive process name expressing what the user wants to retain or record. |
 | `ProcessIdentity` | One process lifetime identified by PID, name, and start time. |
-| Working Tracking List | The mutable set used by the current Live session. |
-| Saved named Tracking List | A persistent definition changed only by explicit list-management actions. |
-| Tracked-only | An independent display filter; it is not inferred from whether the working list is empty. |
+| Current Investigation | The mutable, automatically saved investigation state used by the current Live session. |
+| Working Tracking List | The tracked-name field inside the Current Investigation. It is not an independently named object. |
+| Investigation Profile | The only named reusable investigation unit. It is changed only by explicit profile actions. |
+| Tracked-only | A profile-owned display filter; it is not inferred from whether the working Tracking List is empty. |
 | Ghost Row | The newest exited identity retained for a tracked name so its final values and history remain inspectable. |
 
 Tracking intent uses process names because PIDs change across restarts and one name can have several live instances. Histories, selections, Process Info targets, and process Graphs use full `ProcessIdentity` values so a reused PID or restarted process never inherits another lifetime's samples.
 
 System history is independent from Tracking Lists. MEM, GPU, System Activity, and aggregate CPU histories are retained without registering a process name.
 
-## Working and Saved Lists
+## Current Investigation and Profiles
 
-Changing a process's tracked state edits only the working Tracking List. Saved named definitions change only through explicit Save, Save As, Rename, or Delete actions.
+The Current Investigation owns the working Tracking List, Tracked-only state, Processes Flat/Tree mode, visible process columns and order, process sort, ordered Graph templates and each Graph's Raw/MA5 mode, Graph layout and time span, Samples and Delta visibility, Y-axis lower-bound mode, and the default Recording interval. It is automatically written as the last investigation after a successful run.
 
-The Tracking Lists dialog includes a virtual `Empty (default)` entry. It represents an empty working list, is active only when no saved definition is active, and is never persisted, renamed, deleted, or overwritten. Loading it or a saved definition replaces the working list without changing Tracked-only.
+Changing a process's tracked state edits the working Tracking List in the Current Investigation. It marks an active profile as modified but never overwrites that named profile. A profile changes only through explicit Save, Save As, Rename, or Delete actions. Theme, mouse enablement, process column widths, preferred Processes panel height, text filter, selections, retained samples, and runtime process identities remain outside profiles.
 
-Loading a definition can remove names whose older retained samples are no longer needed. When that operation would discard history beyond general Live retention, the application asks for confirmation before pruning it.
+Loading a profile is available only in Live and replaces the complete profile-owned portion of the Current Investigation. It can remove names whose older retained samples are no longer needed. When that operation would discard history beyond general Live retention, the application asks for confirmation before pruning it. Profile rename and delete remain available in Recording and Log view because they do not change the active investigation.
+
+Profiles express tracking intent with case-insensitive process names. Their process Graph templates may additionally include an executable-path constraint captured when available. Profiles never store a PID, start time, `ProcessIdentity`, current selection, text filter, retained history, A/B points, or other run-specific cursor state. Graph template resolution is defined in [Graph Workspace](graph-workspace.md).
 
 ## Startup
 
-Startup mode can resume the previous working list, start empty, or open a chooser containing the previous working list, the virtual empty entry, and saved definitions.
+Startup mode can `Resume last`, `Choose Profile`, or `Start empty`. The chooser contains `Last investigation`, `Empty investigation`, and every saved Investigation Profile. The two built-in choices are virtual and are never persisted as named profiles.
 
-The startup choice is resolved before the first sample. This ensures tracked-history retention applies from the first capture. Canceling the chooser exits before initial sampling and restores the terminal.
+Startup applies investigation state in two phases. The selected Tracking List, Tracked-only state, process view, columns, sort, Graph workspace options, and Recording default are resolved before the first sample, so tracked-history retention applies from the first capture. After that sample establishes current process and GPU identities, Graph templates resolve against it and receive new run-unique Graph IDs. Unresolved or ambiguous templates are reported and never guessed.
 
-Tracking List startup changes and explicit saved-list actions persist immediately. Other session settings are written after a successful interactive run; filter input is never persisted.
+Startup-setting and explicit profile changes persist immediately. Other Current Investigation changes are written after a successful interactive run; filter input is never persisted. Legacy named Tracking Lists are migrated once into Investigation Profiles using the remaining legacy investigation settings. A colliding profile name is preserved by adding a ` (Tracking List)` suffix, with a numeric suffix when needed; subsequent writes omit the legacy list format.
 
 ## Processes Flat and Tree Views
 
@@ -70,8 +73,10 @@ Starting a Recording copies the working Tracking List into session-owned scope. 
 - A tracked name, a currently matching process, and one process identity are distinct concepts.
 - PID reuse and process restart must never merge histories.
 - Tracked-only must remain independent from the contents of the working Tracking List.
-- Working-list changes must not overwrite saved definitions implicitly.
-- The virtual empty entry must never be persisted as a named definition.
+- Current Investigation changes must not overwrite a named profile implicitly.
+- Loading a profile must pass the retained-history confirmation boundary before replacing the Current Investigation.
+- `Last investigation` and `Empty investigation` must never be persisted as named profiles.
+- Tracking intent must be applied before the initial sample; Graph templates must resolve only after current identities exist.
 - History pruning must remove samples and peaks together.
 - Ordinary Live history must retain at most two complete generations per case-insensitive process name.
 - Concurrently live identities and explicit paused-display, Graph, or Process Info references must remain inspectable even when they exceed the ordinary generation limit.

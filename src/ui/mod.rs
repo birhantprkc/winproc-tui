@@ -8,6 +8,7 @@ pub(crate) mod graph_reorder;
 pub(crate) mod graph_slot;
 pub(crate) mod header;
 pub(crate) mod help;
+pub(crate) mod investigation_profiles;
 pub(crate) mod layout;
 pub(crate) mod log_list;
 pub(crate) mod open_files;
@@ -20,7 +21,6 @@ pub(crate) mod quit_confirm;
 pub(crate) mod recording_dialog;
 pub(crate) mod system_panel;
 pub(crate) mod theme;
-pub(crate) mod tracked_lists;
 pub(crate) mod tracked_remove_confirm;
 pub(crate) mod widgets;
 
@@ -58,6 +58,11 @@ use help::draw_help;
 pub(crate) use help::help_area;
 pub(crate) use help::{
     help_page_size_for_screen, help_scroll_max_for_page_size, help_scrollbar_area,
+};
+use investigation_profiles::draw_investigation_profiles;
+pub(crate) use investigation_profiles::{
+    investigation_profile_index_at, investigation_profile_startup_at_for_screen,
+    investigation_profile_startup_link_at_for_screen, investigation_profiles_page_size_for_screen,
 };
 #[cfg(test)]
 pub(crate) use layout::main_panel_areas;
@@ -107,11 +112,6 @@ pub(crate) use system_panel::{
 };
 use system_panel::{draw_system_info_dialog, draw_system_panel};
 pub(crate) use theme::{THEMES, Theme, theme_index_by_name};
-use tracked_lists::draw_tracked_lists;
-pub(crate) use tracked_lists::{
-    tracked_list_index_at, tracked_list_save_name_area_for_screen,
-    tracked_list_startup_at_for_screen, tracked_lists_page_size_for_screen,
-};
 use tracked_remove_confirm::draw_tracked_remove_confirm;
 #[cfg(test)]
 pub(crate) use tracked_remove_confirm::tracked_remove_dialog_area;
@@ -177,8 +177,8 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
     if app.show_process_kill_confirmation {
         draw_process_kill_confirm(frame, area, app, theme);
     }
-    if app.tracked_lists_dialog.is_some() {
-        draw_tracked_lists(frame, area, app, theme);
+    if app.investigation_profiles_dialog.is_some() {
+        draw_investigation_profiles(frame, area, app, theme);
     }
     if app.show_display_area_warning {
         draw_display_area_warning(frame, area, theme);

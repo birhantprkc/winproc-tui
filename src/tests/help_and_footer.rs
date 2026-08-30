@@ -136,6 +136,10 @@ fn help_dialog_buffer_shows_two_column_layout() {
         "{rendered}"
     );
     assert!(rendered.contains("Pause / Resume"), "{rendered}");
+    assert!(
+        rendered.contains("Open Investigation Profiles"),
+        "{rendered}"
+    );
     assert!(rendered.contains("Copy selected row"), "{rendered}");
     assert!(!rendered.contains("Open Settings"), "{rendered}");
 
@@ -347,7 +351,7 @@ fn footer_shows_process_context_on_one_row() {
 
     assert!(rendered.contains("PROCESSES"), "{rendered}");
     assert!(rendered.contains("Ctrl+P Pause"), "{rendered}");
-    assert!(rendered.contains("Ctrl+T Lists"), "{rendered}");
+    assert!(rendered.contains("Ctrl+T Profiles"), "{rendered}");
     assert!(rendered.contains("c Columns"), "{rendered}");
     assert!(rendered.contains("s Sort"), "{rendered}");
     assert!(rendered.contains("v Flat/Tree"), "{rendered}");
@@ -370,7 +374,7 @@ fn footer_shows_process_context_on_one_row() {
     assert!(!rendered.contains("Up/Down Row"), "{rendered}");
     assert!(!rendered.contains("Left/Right Column"), "{rendered}");
     assert!(!rendered.contains("Ctrl+R Record"), "{rendered}");
-    assert!(!rendered.contains("Ctrl+O Settings"), "{rendered}");
+    assert!(!rendered.contains("Ctrl+O"), "{rendered}");
 
     app.on_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE))
         .unwrap();
@@ -399,7 +403,7 @@ fn footer_keeps_primary_action_visible_at_narrow_width() {
     assert_eq!(action_x, 0);
     assert_eq!(action_y, footer.y);
     assert!(find_text_position_in_area(&buffer, footer, "PROCESSES").is_none());
-    assert!(find_text_position(&buffer, "Ctrl+T Lists").is_none());
+    assert!(find_text_position(&buffer, "Ctrl+O").is_none());
 }
 
 #[test]

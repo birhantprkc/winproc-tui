@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use crate::{
-    config::{AppConfig, SavedTrackedList, TrackedConfig},
+    config::{AppConfig, InvestigationStateConfig, SavedInvestigationProfile},
     ui::{
         THEMES,
         footer::shortcut_spans,
@@ -29,7 +29,7 @@ const DIALOG_WIDTH: u16 = 68;
 const MAX_LIST_HEIGHT: u16 = 9;
 const PANEL_CHROME_HEIGHT: u16 = 6;
 const LIST_TOP_OFFSET: u16 = 2;
-const LEAD_TEXT: &str = "Choose a Tracking List.";
+const LEAD_TEXT: &str = "Choose an Investigation Profile.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupOutcome {
@@ -47,28 +47,29 @@ struct StartupLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum StartupTrackedListChoice {
+enum StartupInvestigationChoice {
     ResumeLast,
     StartEmpty,
-    Saved(SavedTrackedList),
+    Saved(SavedInvestigationProfile),
 }
 
-impl StartupTrackedListChoice {
+impl StartupInvestigationChoice {
     fn label(&self) -> String {
         match self {
-            Self::ResumeLast => "Last used Tracking List".to_string(),
-            Self::StartEmpty => "Empty Tracking List".to_string(),
-            Self::Saved(list) => format!(
-                "{}  ({} process{})",
-                list.name,
-                list.processes.len(),
-                if list.processes.len() == 1 { "" } else { "es" }
+            Self::ResumeLast => "Last investigation".to_string(),
+            Self::StartEmpty => "Empty investigation".to_string(),
+            Self::Saved(profile) => format!(
+                "{}  ({} tracked · {} Graph{})",
+                profile.name,
+                profile.tracked_names.len(),
+                profile.graphs.len(),
+                if profile.graphs.len() == 1 { "" } else { "s" }
             ),
         }
     }
 }
 
-pub(crate) fn choose_startup_tracked_list(
+pub(crate) fn choose_startup_investigation(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     config: &mut AppConfig,
 ) -> Result<StartupOutcome> {
@@ -144,23 +145,27 @@ fn startup_outcome_for_key(code: &KeyCode) -> Option<StartupOutcome> {
     }
 }
 
-fn startup_choices(config: &AppConfig) -> Vec<StartupTrackedListChoice> {
+fn startup_choices(config: &AppConfig) -> Vec<StartupInvestigationChoice> {
     let mut choices = vec![
-        StartupTrackedListChoice::ResumeLast,
-        StartupTrackedListChoice::StartEmpty,
+        StartupInvestigationChoice::ResumeLast,
+        StartupInvestigationChoice::StartEmpty,
     ];
     choices.extend(
         config
-            .tracked_lists
+            .investigation_profiles
             .iter()
             .cloned()
-            .map(StartupTrackedListChoice::Saved),
+            .map(StartupInvestigationChoice::Saved),
     );
     choices
 }
 
-fn initial_selection(config: &AppConfig, choices: &[StartupTrackedListChoice]) -> usize {
-    let Some(active) = config.tracking.active_list.as_deref() else {
+fn initial_selection(config: &AppConfig, choices: &[StartupInvestigationChoice]) -> usize {
+    let Some(active) = config
+        .investigation
+        .as_ref()
+        .and_then(|investigation| investigation.active_profile.as_deref())
+    else {
         return 0;
     };
     choices
@@ -168,34 +173,34 @@ fn initial_selection(config: &AppConfig, choices: &[StartupTrackedListChoice]) -
         .position(|choice| {
             matches!(
                 choice,
-                StartupTrackedListChoice::Saved(list)
-                    if list.name.eq_ignore_ascii_case(active)
+                StartupInvestigationChoice::Saved(profile)
+                    if profile.name.eq_ignore_ascii_case(active)
             )
         })
         .unwrap_or(0)
 }
 
-fn apply_startup_choice(config: &mut AppConfig, choice: StartupTrackedListChoice) {
+fn apply_startup_choice(config: &mut AppConfig, choice: StartupInvestigationChoice) {
+    let investigation = config
+        .investigation
+        .as_mut()
+        .expect("startup config must be prepared");
     match choice {
-        StartupTrackedListChoice::ResumeLast => {}
-        StartupTrackedListChoice::StartEmpty => {
-            config.tracked.clear();
-            config.tracking.active_list = None;
+        StartupInvestigationChoice::ResumeLast => {}
+        StartupInvestigationChoice::StartEmpty => {
+            investigation.last = InvestigationStateConfig::default();
+            investigation.active_profile = None;
         }
-        StartupTrackedListChoice::Saved(list) => {
-            config.tracked = list
-                .processes
-                .into_iter()
-                .map(|name| TrackedConfig { name })
-                .collect();
-            config.tracking.active_list = Some(list.name);
+        StartupInvestigationChoice::Saved(profile) => {
+            investigation.last = profile.investigation;
+            investigation.active_profile = Some(profile.name);
         }
     }
 }
 
 fn draw_startup_choice(
     frame: &mut ratatui::Frame<'_>,
-    choices: &[StartupTrackedListChoice],
+    choices: &[StartupInvestigationChoice],
     selected: usize,
     offset: usize,
     theme: crate::ui::Theme,
@@ -368,7 +373,8 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     fn render_startup_choice(selected: usize) -> String {
-        let config = AppConfig::default();
+        let mut config = AppConfig::default();
+        crate::config::prepare_app_config(&mut config);
         let choices = startup_choices(&config);
         let backend = TestBackend::new(80, 30);
         let mut terminal = Terminal::new(backend).expect("test terminal should be created");
@@ -401,21 +407,16 @@ mod tests {
         );
         assert!(rendered.contains("STARTUP"), "{rendered}");
         assert!(rendered.contains(LEAD_TEXT), "{rendered}");
-        assert!(rendered.contains("Last used Tracking List"), "{rendered}");
-        assert!(rendered.contains("Empty Tracking List"), "{rendered}");
-        assert!(!rendered.contains("Resume last Tracking List"));
-        assert!(!rendered.contains("Start with empty Tracking List"));
-        assert!(!rendered.contains("CHOOSE TRACKING LIST"));
+        assert!(rendered.contains("Last investigation"), "{rendered}");
+        assert!(rendered.contains("Empty investigation"), "{rendered}");
+        assert!(!rendered.contains("Choose a Tracking List"));
         assert!(!rendered.contains("START MENU"));
-        assert!(!rendered.contains("Last working Tracking List"));
         assert!(
             rendered.contains("↑/↓ Move  Enter Start  Esc Quit"),
             "{rendered}"
         );
         assert!(!rendered.contains("[ Start ]"), "{rendered}");
         assert!(!rendered.contains("[ Quit ]"), "{rendered}");
-        assert!(!rendered.contains("Keep the last working Tracking List."));
-        assert!(!rendered.contains("Choose the Tracking List to apply"));
     }
 
     #[test]
@@ -438,7 +439,8 @@ mod tests {
 
     #[test]
     fn startup_selection_uses_highlight_and_list_hit_testing() {
-        let config = AppConfig::default();
+        let mut config = AppConfig::default();
+        crate::config::prepare_app_config(&mut config);
         let choices = startup_choices(&config);
         let screen = Rect::new(0, 0, 80, 30);
         let backend = TestBackend::new(screen.width, screen.height);
@@ -470,41 +472,63 @@ mod tests {
     }
 
     #[test]
-    fn saved_startup_choice_replaces_active_working_list() {
+    fn saved_startup_choice_replaces_the_complete_last_investigation() {
         let mut config = AppConfig::default();
-        config.tracked.push(TrackedConfig {
-            name: "old.exe".to_string(),
-        });
+        crate::config::prepare_app_config(&mut config);
         apply_startup_choice(
             &mut config,
-            StartupTrackedListChoice::Saved(SavedTrackedList {
+            StartupInvestigationChoice::Saved(SavedInvestigationProfile {
                 name: "API".to_string(),
-                processes: vec!["api.exe".to_string(), "worker.exe".to_string()],
+                investigation: InvestigationStateConfig {
+                    tracked_names: vec!["api.exe".to_string(), "worker.exe".to_string()],
+                    graph_time_span_seconds: 300,
+                    ..InvestigationStateConfig::default()
+                },
             }),
         );
 
-        assert_eq!(config.tracking.active_list.as_deref(), Some("API"));
+        let investigation = config.investigation.as_ref().unwrap();
+        assert_eq!(investigation.active_profile.as_deref(), Some("API"));
         assert_eq!(
-            config
-                .tracked
+            investigation
+                .last
+                .tracked_names
                 .iter()
-                .map(|process| process.name.as_str())
+                .map(String::as_str)
                 .collect::<Vec<_>>(),
             vec!["api.exe", "worker.exe"]
         );
+        assert_eq!(investigation.last.graph_time_span_seconds, 300);
     }
 
     #[test]
-    fn empty_startup_choice_clears_active_working_list() {
+    fn empty_startup_choice_resets_only_profile_owned_state() {
         let mut config = AppConfig::default();
-        config.tracking.active_list = Some("API".to_string());
-        config.tracked.push(TrackedConfig {
-            name: "api.exe".to_string(),
-        });
+        crate::config::prepare_app_config(&mut config);
+        let investigation = config.investigation.as_mut().unwrap();
+        investigation.active_profile = Some("API".to_string());
+        investigation.last.tracked_names = vec!["api.exe".to_string()];
+        investigation.last.graph_time_span_seconds = 300;
 
-        apply_startup_choice(&mut config, StartupTrackedListChoice::StartEmpty);
+        apply_startup_choice(&mut config, StartupInvestigationChoice::StartEmpty);
 
-        assert!(config.tracked.is_empty());
-        assert_eq!(config.tracking.active_list, None);
+        let investigation = config.investigation.as_ref().unwrap();
+        assert_eq!(investigation.last, InvestigationStateConfig::default());
+        assert_eq!(investigation.active_profile, None);
+    }
+
+    #[test]
+    fn resume_last_keeps_the_complete_last_investigation() {
+        let mut config = AppConfig::default();
+        crate::config::prepare_app_config(&mut config);
+        let investigation = config.investigation.as_mut().unwrap();
+        investigation.active_profile = Some("API".to_string());
+        investigation.last.tracked_names = vec!["api.exe".to_string()];
+        investigation.last.graph_time_span_seconds = 600;
+        let expected = investigation.clone();
+
+        apply_startup_choice(&mut config, StartupInvestigationChoice::ResumeLast);
+
+        assert_eq!(config.investigation.as_ref().unwrap(), &expected);
     }
 }
