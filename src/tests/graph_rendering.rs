@@ -610,16 +610,11 @@ fn graph_span_buttons_zoom_and_highlight_on_hover() {
     assert_eq!(zoom_in_text, "[+]");
     assert_eq!(initial[(zoom_out.x + 1, zoom_out.y)].bg, app.theme().panel);
 
-    assert!(handle_mouse_event(
-        &mut app,
-        mouse_move(zoom_out.x + 1, zoom_out.y),
-        screen,
-    ));
-    assert!(!handle_mouse_event(
-        &mut app,
-        mouse_move(zoom_out.x + 1, zoom_out.y),
-        screen,
-    ));
+    let first_move = handle_mouse_event(&mut app, mouse_move(zoom_out.x + 1, zoom_out.y), screen);
+    assert!(first_move.dirty);
+    let repeated_move =
+        handle_mouse_event(&mut app, mouse_move(zoom_out.x + 1, zoom_out.y), screen);
+    assert!(!repeated_move.dirty);
 
     assert_eq!(app.graph_hovered_target, Some(GraphHoverTarget::ZoomOut));
     let hovered = render_app_to_buffer(&app, screen.width, screen.height);

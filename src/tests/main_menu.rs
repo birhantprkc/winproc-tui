@@ -8,7 +8,9 @@ use super::support::{
     render_app_to_buffer, render_app_to_text, track_process_name, unique_recording_path,
 };
 use crate::{
-    app::{App, AppActivity, ProcessViewMode, profiles::InvestigationProfilesView},
+    app::{
+        App, AppActivity, ProcessViewMode, handle_mouse_event, profiles::InvestigationProfilesView,
+    },
     samplers::{SampleRequest, SamplingWorker},
     ui::{self, main_menu_area, main_menu_item_area},
 };
@@ -368,6 +370,48 @@ fn menu_quit_is_immediate_in_live_and_log_view_but_confirms_recording() {
     assert!(recording.show_quit_confirmation);
     assert!(!recording.should_quit);
     press(&mut recording, KeyCode::Esc);
+    recording.stop_recording().unwrap();
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn menu_quit_mouse_event_exits_live_and_log_view_but_confirms_recording() {
+    let screen = Rect::new(0, 0, 100, 45);
+    for log_view in [false, true] {
+        let mut app = make_test_app(1, 10);
+        if log_view {
+            app.log_view_path = Some(PathBuf::from("C:/logs/example.log"));
+        }
+        app.open_main_menu();
+        let quit_index = menu_labels(&app)
+            .iter()
+            .position(|label| label == "Quit")
+            .expect("Quit row");
+        let quit = main_menu_item_area(screen, &app, quit_index).expect("Quit item area");
+
+        let outcome = handle_mouse_event(&mut app, left_click(quit.x, quit.y), screen);
+
+        assert!(outcome.should_quit);
+        assert!(app.should_quit);
+        assert!(!app.show_quit_confirmation);
+        assert!(!app.is_main_menu_open());
+    }
+
+    let mut recording = make_test_app(1, 10);
+    let path = start_recording(&mut recording, "main-menu-mouse-quit-confirmation");
+    recording.open_main_menu();
+    let quit_index = menu_labels(&recording)
+        .iter()
+        .position(|label| label == "Quit")
+        .expect("Quit row");
+    let quit = main_menu_item_area(screen, &recording, quit_index).expect("Quit item area");
+
+    let outcome = handle_mouse_event(&mut recording, left_click(quit.x, quit.y), screen);
+
+    assert!(!outcome.should_quit);
+    assert!(!recording.should_quit);
+    assert!(recording.show_quit_confirmation);
+    assert!(!recording.is_main_menu_open());
     recording.stop_recording().unwrap();
     let _ = std::fs::remove_file(path);
 }

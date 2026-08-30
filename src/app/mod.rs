@@ -183,11 +183,15 @@ pub(crate) fn run_tui(
                     dirty = true;
                 }
                 Event::Mouse(mouse) => {
-                    dirty |= handle_mouse_event(
+                    let outcome = handle_mouse_event(
                         app,
                         mouse,
                         Rect::new(0, 0, screen_size.width, screen_size.height),
                     );
+                    dirty |= outcome.dirty;
+                    if outcome.should_quit {
+                        break;
+                    }
                 }
                 Event::Resize(width, height) => {
                     screen_size.width = width;
@@ -207,7 +211,17 @@ pub(crate) fn run_tui(
     Ok(())
 }
 
-pub(crate) fn handle_mouse_event(app: &mut App, mouse: MouseEvent, screen_area: Rect) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MouseEventOutcome {
+    pub(crate) dirty: bool,
+    pub(crate) should_quit: bool,
+}
+
+pub(crate) fn handle_mouse_event(
+    app: &mut App,
+    mouse: MouseEvent,
+    screen_area: Rect,
+) -> MouseEventOutcome {
     let previous_hover = (
         app.graph_hovered_target,
         app.cpu_per_core_hovered,
@@ -217,7 +231,7 @@ pub(crate) fn handle_mouse_event(app: &mut App, mouse: MouseEvent, screen_area: 
         app.header_menu_hovered,
     );
     app.on_mouse(mouse, screen_area);
-    mouse.kind != MouseEventKind::Moved
+    let dirty = mouse.kind != MouseEventKind::Moved
         || previous_hover
             != (
                 app.graph_hovered_target,
@@ -226,7 +240,11 @@ pub(crate) fn handle_mouse_event(app: &mut App, mouse: MouseEvent, screen_area: 
                 app.process_disclosure_hovered.clone(),
                 app.main_menu_hovered,
                 app.header_menu_hovered,
-            )
+            );
+    MouseEventOutcome {
+        dirty,
+        should_quit: app.should_quit,
+    }
 }
 
 struct LoopTrace {
