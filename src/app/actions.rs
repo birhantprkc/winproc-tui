@@ -162,8 +162,12 @@ impl App {
                     }
                     _ => {}
                 },
-                InvestigationProfilesView::ConfirmDelete { .. }
-                | InvestigationProfilesView::ConfirmLoad { .. } => match key.code {
+                InvestigationProfilesView::ConfirmDelete { .. } => match key.code {
+                    KeyCode::Enter => self.confirm_investigation_profile_action(),
+                    KeyCode::Esc => self.cancel_investigation_profile_subdialog(),
+                    _ => {}
+                },
+                InvestigationProfilesView::ConfirmLoad { .. } => match key.code {
                     KeyCode::Esc | KeyCode::Enter => self.cancel_investigation_profile_subdialog(),
                     KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'n') => {
                         self.cancel_investigation_profile_subdialog()

@@ -19,7 +19,7 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier};
 
 fn profile(name: &str, graphs: Vec<InvestigationGraphConfig>) -> SavedInvestigationProfile {
     SavedInvestigationProfile {
@@ -239,10 +239,152 @@ fn save_delete_and_duplicate_names_are_explicit() {
     app.open_investigation_profiles();
     app.on_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))
         .unwrap();
-    app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE))
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
         .unwrap();
     assert!(app.runtime.saved_investigation_profiles.is_empty());
     assert_eq!(app.active_investigation_profile, None);
+}
+
+#[test]
+fn profile_delete_confirmation_uses_enter_and_keeps_current_investigation() {
+    let mut app = make_test_app(1, 10);
+    app.runtime.saved_investigation_profiles = vec![
+        profile("Delete me", Vec::new()),
+        profile("Keep bound", Vec::new()),
+    ];
+    app.active_investigation_profile = Some("Delete me".to_string());
+    app.watch_list = vec!["current.exe".to_string()];
+    app.watch_enabled = true;
+    app.process_view_mode = ProcessViewMode::Tree;
+    app.graph_time_span_seconds = 600;
+
+    app.open_investigation_profiles();
+    app.on_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))
+        .unwrap();
+    assert!(matches!(
+        app.investigation_profiles_view(),
+        Some(InvestigationProfilesView::ConfirmDelete { name }) if name == "Delete me"
+    ));
+
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+
+    assert_eq!(
+        app.runtime
+            .saved_investigation_profiles
+            .iter()
+            .map(|profile| profile.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Keep bound"]
+    );
+    assert_eq!(app.active_investigation_profile, None);
+    assert_eq!(app.watch_list, ["current.exe"]);
+    assert!(app.watch_enabled);
+    assert_eq!(app.process_view_mode, ProcessViewMode::Tree);
+    assert_eq!(app.graph_time_span_seconds, 600);
+
+    app.runtime
+        .saved_investigation_profiles
+        .insert(0, profile("Delete other", Vec::new()));
+    app.active_investigation_profile = Some("Keep bound".to_string());
+    app.open_investigation_profiles();
+    app.on_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE))
+        .unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))
+        .unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+
+    assert_eq!(
+        app.runtime
+            .saved_investigation_profiles
+            .iter()
+            .map(|profile| profile.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Keep bound"]
+    );
+    assert_eq!(
+        app.active_investigation_profile.as_deref(),
+        Some("Keep bound")
+    );
+    assert_eq!(app.watch_list, ["current.exe"]);
+    assert!(app.watch_enabled);
+    assert_eq!(app.process_view_mode, ProcessViewMode::Tree);
+    assert_eq!(app.graph_time_span_seconds, 600);
+}
+
+#[test]
+fn profile_delete_confirmation_only_esc_cancels() {
+    let mut app = make_test_app(1, 10);
+    app.runtime.saved_investigation_profiles = vec![profile("First", Vec::new())];
+    app.active_investigation_profile = Some("First".to_string());
+    app.open_investigation_profiles();
+    app.on_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))
+        .unwrap();
+
+    for ch in ['y', 'Y', 'n', 'N'] {
+        app.on_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE))
+            .unwrap();
+        assert!(matches!(
+            app.investigation_profiles_view(),
+            Some(InvestigationProfilesView::ConfirmDelete { name }) if name == "First"
+        ));
+        assert_eq!(app.runtime.saved_investigation_profiles.len(), 1);
+        assert_eq!(app.active_investigation_profile.as_deref(), Some("First"));
+    }
+
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+        .unwrap();
+
+    assert!(matches!(
+        app.investigation_profiles_view(),
+        Some(InvestigationProfilesView::Browse)
+    ));
+    assert_eq!(app.runtime.saved_investigation_profiles.len(), 1);
+    assert_eq!(app.active_investigation_profile.as_deref(), Some("First"));
+}
+
+#[test]
+fn profile_delete_confirmation_renders_exact_warning_shortcuts() {
+    let mut app = make_test_app(1, 10);
+    app.runtime.saved_investigation_profiles = vec![profile("First", Vec::new())];
+    app.open_investigation_profiles();
+    app.on_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))
+        .unwrap();
+
+    let buffer = render_app_to_buffer(&app, 100, 45);
+    let rendered = super::support::buffer_to_text(&buffer);
+    let shortcut = "Enter Delete  Esc Cancel";
+    let (enter_x, shortcut_y) =
+        find_text_position(&buffer, shortcut).expect("delete shortcuts should render exactly");
+
+    assert!(
+        rendered.contains("DELETE INVESTIGATION PROFILE?"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("Delete \"First\"? The current setup is kept."),
+        "{rendered}"
+    );
+    assert!(rendered.contains("This cannot be undone."), "{rendered}");
+    assert!(!rendered.contains("Enter/Esc/n Cancel"), "{rendered}");
+    assert!(!rendered.contains("y Delete"), "{rendered}");
+
+    assert_eq!(buffer[(enter_x, shortcut_y)].fg, app.theme().warning);
+    assert!(
+        buffer[(enter_x, shortcut_y)]
+            .modifier
+            .contains(Modifier::BOLD)
+    );
+    assert_eq!(buffer[(enter_x + 6, shortcut_y)].fg, app.theme().text);
+    let esc_x = enter_x + "Enter Delete  ".chars().count() as u16;
+    assert_eq!(buffer[(esc_x, shortcut_y)].fg, app.theme().warning);
+    assert!(
+        buffer[(esc_x, shortcut_y)]
+            .modifier
+            .contains(Modifier::BOLD)
+    );
+    assert_eq!(buffer[(esc_x + 4, shortcut_y)].fg, app.theme().text);
 }
 
 #[test]
@@ -572,7 +714,7 @@ fn loading_skips_duplicate_sources_and_stops_at_sixteen_graphs() {
 }
 
 #[test]
-fn profile_load_uses_retained_history_confirmation() {
+fn profile_load_retained_history_confirmation_keeps_its_existing_keys() {
     let mut app = make_test_app(1, 10);
     track_process_name(&mut app, "old.exe");
     record_tracked_process_history_samples(&mut app, "old.exe", 180);
@@ -590,7 +732,32 @@ fn profile_load_uses_retained_history_confirmation() {
     ));
     assert_eq!(app.watch_list, ["old.exe"]);
 
-    app.confirm_investigation_profile_action();
+    let rendered = render_app_to_text(&app, 100, 45);
+    assert!(
+        rendered.contains("Enter/Esc/n Cancel  y Load"),
+        "{rendered}"
+    );
+
+    for key in [
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+    ] {
+        app.on_key(key).unwrap();
+        assert!(matches!(
+            app.investigation_profiles_view(),
+            Some(InvestigationProfilesView::Browse)
+        ));
+        assert_eq!(app.watch_list, ["old.exe"]);
+        app.load_selected_investigation_profile();
+        assert!(matches!(
+            app.investigation_profiles_view(),
+            Some(InvestigationProfilesView::ConfirmLoad { .. })
+        ));
+    }
+
+    app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE))
+        .unwrap();
 
     assert_eq!(app.watch_list, ["new.exe"]);
 }

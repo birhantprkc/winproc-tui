@@ -326,7 +326,7 @@ fn draw_delete_confirm(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, th
         "DELETE INVESTIGATION PROFILE?",
         &format!("Delete \"{name}\"? The current setup is kept."),
         "This cannot be undone.",
-        "Delete",
+        &[("Enter", "Delete"), ("Esc", "Cancel")],
         theme,
     );
 }
@@ -365,7 +365,7 @@ fn draw_load_confirm(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, them
                 "s"
             }
         ),
-        "Load",
+        &[("Enter/Esc/n", "Cancel"), ("y", "Load")],
         theme,
     );
 }
@@ -376,7 +376,7 @@ fn draw_confirm(
     title: &'static str,
     message: &str,
     detail: &str,
-    apply_label: &'static str,
+    shortcuts: &[(&'static str, &'static str)],
     theme: Theme,
 ) {
     let popup = centered_dialog_rect(area, CONFIRM_DIALOG_WIDTH, CONFIRM_DIALOG_HEIGHT);
@@ -395,11 +395,8 @@ fn draw_confirm(
         row(content, 2),
     );
     frame.render_widget(
-        Paragraph::new(Line::from(warning_shortcut_spans(
-            &[("Enter/Esc/n", "Cancel"), ("y", apply_label)],
-            theme,
-        )))
-        .alignment(Alignment::Center),
+        Paragraph::new(Line::from(warning_shortcut_spans(shortcuts, theme)))
+            .alignment(Alignment::Center),
         row(content, 5),
     );
 }
