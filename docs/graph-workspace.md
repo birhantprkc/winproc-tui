@@ -61,6 +61,8 @@ Display smoothing does not change time selection or comparison data. Samples row
 
 `GraphSlotLayout` supports Auto and explicit one-, two-, or three-column row-major grids. Auto chooses as many columns as fit while preserving the minimum readable card width. Explicit layouts fall back to fewer effective columns when the terminal is too narrow, and a single Graph uses the full width.
 
+Time-axis labels adapt to the available card width without overlapping. Endpoint labels take priority over intermediate labels; this does not change the plotted time range or cursor and A/B positions.
+
 Cards scroll by layout row. Selection changes scroll position only enough to keep the active card visible. The Samples inspector is placed beside Graphs when width permits, below them when height permits, and otherwise collapses temporarily. Temporary collapse is distinct from the saved visibility preference so resizing can restore the inspector.
 
 Graph assignment is independent from terminal geometry and workspace visibility. Resize preserves entries, order, active ID, selected time, A/B timestamps, and live-follow state while recalculating effective columns, Samples placement, and row scroll. If a readable plot cannot fit, the active card retains its identity and remove action and shows a resize message.

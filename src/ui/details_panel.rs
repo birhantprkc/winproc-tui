@@ -1975,11 +1975,30 @@ fn axis_tick_label_line(
 ) -> Line<'static> {
     let mut chars = vec![' '; width];
     let labels = graph_tick_labels(bounds, latest_sample_at);
-    for (label, position) in labels
-        .into_iter()
-        .zip(axis_tick_positions(width, y_label_width))
-    {
-        write_axis_label(&mut chars, &label, position);
+    let positions = axis_tick_positions(width, y_label_width);
+    let mut occupied = Vec::<std::ops::Range<usize>>::new();
+    // Keep the endpoints first, then the midpoint and quarter points when they fit.
+    for index in [0, 4, 2, 1, 3] {
+        let Some(&position) = positions.get(index) else {
+            continue;
+        };
+        let label = &labels[index];
+        let label_width = label.chars().count();
+        if label_width > width {
+            continue;
+        }
+        let start = axis_label_start(width, label_width, position);
+        let end = start + label_width;
+        if occupied
+            .iter()
+            .any(|range| start <= range.end && range.start <= end)
+        {
+            continue;
+        }
+        for (cell, ch) in chars[start..end].iter_mut().zip(label.chars()) {
+            *cell = ch;
+        }
+        occupied.push(start..end);
     }
     Line::from(Span::styled(
         chars.into_iter().collect::<String>(),
@@ -2078,22 +2097,11 @@ fn axis_tick_positions(width: usize, y_label_width: usize) -> Vec<usize> {
         .collect()
 }
 
-fn write_axis_label(chars: &mut [char], label: &str, tick_position: usize) {
-    if chars.is_empty() {
-        return;
-    }
-
-    let label_width = label.chars().count();
-    let start = if tick_position + label_width >= chars.len() {
-        chars.len().saturating_sub(label_width)
+fn axis_label_start(width: usize, label_width: usize, tick_position: usize) -> usize {
+    if tick_position + label_width >= width {
+        width.saturating_sub(label_width)
     } else {
         tick_position.saturating_sub(label_width / 2)
-    };
-
-    for (offset, ch) in label.chars().enumerate() {
-        if let Some(cell) = chars.get_mut(start + offset) {
-            *cell = ch;
-        }
     }
 }
 
@@ -2780,6 +2788,38 @@ mod tests {
         let min_gap = gaps.clone().min().expect("tick gaps should exist");
         let max_gap = gaps.max().expect("tick gaps should exist");
         assert!(max_gap - min_gap <= 1);
+    }
+
+    #[test]
+    fn time_axis_labels_remain_whole_and_separated_at_every_width() {
+        let latest = Local.with_ymd_and_hms(2026, 9, 6, 12, 0, 0).unwrap();
+        let labels = graph_tick_labels((-60, 0), Some(latest));
+        for y_width in [0, 8, 14] {
+            for width in 0..=120 {
+                let line = axis_tick_label_line(
+                    width,
+                    y_width,
+                    (-60, 0),
+                    Some(latest),
+                    crate::ui::THEMES[0],
+                );
+                let text = line.to_string();
+                assert_eq!(text.chars().count(), width);
+                for token in text.split_whitespace() {
+                    assert!(
+                        labels.iter().any(|label| label == token),
+                        "width {width}: {text}"
+                    );
+                }
+                if width >= 30 {
+                    assert!(text.contains(&labels[0]), "{text}");
+                    assert!(text.contains(&labels[4]), "{text}");
+                }
+                if width >= 81 {
+                    assert!(labels.iter().all(|label| text.contains(label)), "{text}");
+                }
+            }
+        }
     }
 
     #[test]
