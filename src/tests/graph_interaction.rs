@@ -78,6 +78,57 @@ fn details_sample_selection_moves_within_samples() {
 }
 
 #[test]
+fn ab_summary_and_resize_keep_selected_sample_visible_and_clickable() {
+    let mut app = make_test_app(1, 10);
+    assign_private_graph(&mut app);
+    for offset in 0..60 {
+        app.process_history.record_snapshot(
+            app.snapshot.captured_at + chrono::Duration::seconds(offset),
+            &app.snapshot.processes,
+            &app.normalized_watch_names,
+        );
+    }
+    app.focused_panel = FocusedPanel::DetailsGraph;
+    let screen = Rect::new(0, 0, 160, 48);
+    app::sync_layout_state(&mut app, screen);
+    app.select_details_sample_oldest();
+    app.set_ab_point_a();
+    app::sync_layout_state(&mut app, screen);
+    app.select_details_sample_latest();
+    let selected_time = app.selected_details_sample_time().unwrap();
+    let old_capacity = app.details_sample_page_size;
+    app.set_ab_point_b();
+    app::sync_layout_state(&mut app, screen);
+    assert!(app.details_sample_page_size < old_capacity);
+
+    for screen in [screen, Rect::new(0, 0, 160, 36), Rect::new(0, 0, 160, 55)] {
+        app::sync_layout_state(&mut app, screen);
+        assert!(app.details_sample_selected >= app.details_sample_offset);
+        assert!(
+            app.details_sample_selected < app.details_sample_offset + app.details_sample_page_size
+        );
+        let area = details_samples_area_for_app(screen, &app).unwrap();
+        let row = area.y + 1 + (app.details_sample_selected - app.details_sample_offset) as u16;
+        let buffer = render_app_to_buffer(&app, screen.width, screen.height);
+        let time = selected_time.format("%H:%M:%S").to_string();
+        assert!(
+            super::support::find_text_position_in_area(
+                &buffer,
+                Rect::new(area.x, row, area.width, 1),
+                &time
+            )
+            .is_some()
+        );
+        app.on_mouse(super::support::left_click(area.x + 5, row), screen);
+        assert_eq!(app.selected_details_sample_time(), Some(selected_time));
+    }
+    app.clear_ab_comparison_with_status();
+    app::sync_layout_state(&mut app, screen);
+    assert_eq!(app.selected_details_sample_time(), Some(selected_time));
+    assert!(app.details_sample_selected < app.details_sample_offset + app.details_sample_page_size);
+}
+
+#[test]
 fn details_sample_selection_scrolls_only_at_view_edges() {
     let mut app = make_test_app(1, 10);
     assign_private_graph(&mut app);

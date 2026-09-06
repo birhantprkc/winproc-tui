@@ -1609,7 +1609,7 @@ impl App {
 
     pub(crate) fn set_details_sample_page_size(&mut self, page_size: usize) {
         self.details_sample_page_size = page_size.max(1);
-        self.clamp_details_sample_offset();
+        self.ensure_details_sample_visible();
     }
 
     pub(crate) fn set_log_list_page_size(&mut self, page_size: usize) {
