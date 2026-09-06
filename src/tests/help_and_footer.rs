@@ -409,6 +409,29 @@ fn footer_shows_process_context_on_one_row() {
 }
 
 #[test]
+fn footer_pause_label_tracks_display_pause_state() {
+    let mut app = make_test_app(3, 10);
+    for paused in [false, true, false] {
+        if app.is_display_paused() != paused {
+            app.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL))
+                .unwrap();
+        }
+        let rendered = render_app_to_text(&app, 420, 45);
+        let footer = rendered.lines().last().unwrap();
+        assert!(footer.contains(if paused {
+            "Ctrl+P Resume"
+        } else {
+            "Ctrl+P Pause"
+        }));
+        assert!(!footer.contains(if paused {
+            "Ctrl+P Pause"
+        } else {
+            "Ctrl+P Resume"
+        }));
+    }
+}
+
+#[test]
 fn footer_keeps_primary_action_visible_at_narrow_width() {
     let app = make_test_app(3, 10);
     let buffer = render_app_to_buffer(&app, 30, 24);

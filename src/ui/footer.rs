@@ -126,7 +126,14 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
     if app.activity() == AppActivity::LogView {
         items.retain(|(key, _)| *key != "v" && *key != "e");
     } else {
-        items.push(("Ctrl+P", "Pause"));
+        items.push((
+            "Ctrl+P",
+            if app.is_display_paused() {
+                "Resume"
+            } else {
+                "Pause"
+            },
+        ));
     }
     items.insert(0, ("ESC", "Menu"));
     if app.activity() == AppActivity::Live {
