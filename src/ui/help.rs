@@ -588,7 +588,7 @@ fn help_lines(theme: Theme) -> Vec<Line<'static>> {
 
 fn help_hint() -> String {
     format!(
-        "Footer: focused actions. History: {}/{} normal/tracked. Scheme colors mark active items; T marks tracked.",
+        "Footer: fits width. History: {}/{} normal/tracked. Scheme colors mark active items; T marks tracked.",
         format_integer(GENERAL_PROCESS_HISTORY_SAMPLE_CAPACITY as u64),
         format_integer(TRACKED_PROCESS_HISTORY_SAMPLE_CAPACITY as u64)
     )

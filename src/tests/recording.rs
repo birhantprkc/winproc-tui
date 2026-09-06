@@ -930,6 +930,18 @@ fn recording_header_shows_rec_spinner_and_path() {
         "{paused_header}"
     );
 
+    let narrow = render_app_to_text(&app, 80, 45);
+    let footer = narrow.lines().last().unwrap();
+    for shortcut in [
+        "ESC Menu",
+        "F1/? Help",
+        "Ctrl+R Stop",
+        "Ctrl+P Resume",
+        "Tab Focus",
+    ] {
+        assert!(footer.contains(shortcut), "{footer}");
+    }
+
     app.stop_recording().unwrap();
     let _ = std::fs::remove_file(path);
 }

@@ -199,7 +199,7 @@ fn help_dialog_buffer_shows_two_column_layout() {
     assert!(rendered.contains("F12"), "{rendered}");
     assert!(rendered.contains("Cycle color scheme"), "{rendered}");
     assert!(rendered.contains("Esc/Enter/F1/? Close"), "{rendered}");
-    assert!(rendered.contains("Footer: focused actions."), "{rendered}");
+    assert!(rendered.contains("Footer: fits width."), "{rendered}");
     assert!(
         rendered.contains("Scheme colors mark active items; T marks tracked."),
         "{rendered}"
@@ -382,7 +382,7 @@ fn footer_shows_process_context_on_one_row() {
     assert!(rendered.contains("d Kill"), "{rendered}");
     assert!(rendered.contains("Ctrl+F Filter"), "{rendered}");
     assert!(rendered.contains("ESC Menu"), "{rendered}");
-    assert!(!rendered.contains("Tab Focus"), "{rendered}");
+    assert!(rendered.contains("Tab Focus"), "{rendered}");
     assert!(rendered.contains("F12 Color"), "{rendered}");
     assert!(rendered.contains("F1/? Help"), "{rendered}");
     assert!(!rendered.contains("Status  "), "{rendered}");
@@ -432,7 +432,7 @@ fn footer_pause_label_tracks_display_pause_state() {
 }
 
 #[test]
-fn footer_keeps_primary_action_visible_at_narrow_width() {
+fn footer_keeps_menu_help_and_focus_visible_at_narrow_width() {
     let app = make_test_app(3, 10);
     let buffer = render_app_to_buffer(&app, 30, 24);
     let footer = Rect::new(0, 23, 30, 1);
@@ -441,7 +441,8 @@ fn footer_keeps_primary_action_visible_at_narrow_width() {
 
     assert_eq!(menu_x, 0);
     assert_eq!(menu_y, footer.y);
-    assert!(find_text_position_in_area(&buffer, footer, "Space Graph").is_some());
+    assert!(find_text_position_in_area(&buffer, footer, "F1/? Help").is_some());
+    assert!(find_text_position_in_area(&buffer, footer, "Tab Focus").is_some());
     assert!(find_text_position_in_area(&buffer, footer, "PROCESSES").is_none());
     assert!(find_text_position(&buffer, "Ctrl+O").is_none());
 }
@@ -531,7 +532,7 @@ fn footer_shows_process_height_shortcuts_only_for_visible_workspace_focus() {
 }
 
 #[test]
-fn footer_shows_pause_and_omits_tab_for_every_focused_panel() {
+fn footer_shows_pause_and_focus_for_every_focused_panel() {
     let mut app = make_test_app(3, 10);
 
     for focused_panel in [
@@ -549,10 +550,63 @@ fn footer_shows_pause_and_omits_tab_for_every_focused_panel() {
             "{focused_panel:?}: {rendered}"
         );
         assert!(
-            !rendered.contains("Tab Focus"),
+            rendered.contains("Tab Focus"),
             "{focused_panel:?}: {rendered}"
         );
     }
+}
+
+#[test]
+fn footer_fits_whole_shortcuts_and_preserves_essential_actions() {
+    let mut app = make_test_app(3, 10);
+    assign_private_graph(&mut app);
+    for panel in [
+        FocusedPanel::Processes,
+        FocusedPanel::DetailsGraph,
+        FocusedPanel::DetailsSamples,
+    ] {
+        app.focused_panel = panel;
+        for paused in [false, true] {
+            if app.is_display_paused() != paused {
+                app.toggle_display_pause();
+            }
+            let wide = render_app_to_text(&app, 500, 48);
+            let all_groups: Vec<_> = wide.lines().last().unwrap().split("  ").collect();
+            for width in [1, 8, 20, 30, 40, 60, 80, 120, 160, 260] {
+                let buffer = render_app_to_buffer(&app, width, 48);
+                let footer = (0..width)
+                    .map(|x| buffer[(x, 47)].symbol())
+                    .collect::<String>();
+                let footer = footer.trim_end();
+                for group in footer.split("  ").filter(|group| !group.is_empty()) {
+                    assert!(
+                        all_groups.contains(&group),
+                        "partial shortcut at {width}: {footer}"
+                    );
+                }
+                if width >= 80 {
+                    for required in [
+                        "ESC Menu",
+                        "F1/? Help",
+                        "Tab Focus",
+                        if paused {
+                            "Ctrl+P Resume"
+                        } else {
+                            "Ctrl+P Pause"
+                        },
+                    ] {
+                        assert!(footer.contains(required), "{panel:?}, {width}: {footer}");
+                    }
+                }
+            }
+        }
+    }
+    app.toggle_display_pause();
+    app.log_view_path = Some(std::path::PathBuf::from("sample.log"));
+    let rendered = render_app_to_text(&app, 80, 48);
+    let footer = rendered.lines().last().unwrap();
+    assert!(footer.contains("ESC Menu") && footer.contains("F1/? Help"));
+    assert!(!footer.contains("Ctrl+P"));
 }
 
 #[test]

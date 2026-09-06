@@ -12,7 +12,12 @@ use crate::{
 };
 
 pub(crate) fn draw_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, theme: Theme) {
-    let footer = Paragraph::new(Line::from(context_shortcuts(app, theme))).block(
+    let footer = Paragraph::new(Line::from(context_shortcuts(
+        app,
+        theme,
+        area.width as usize,
+    )))
+    .block(
         Block::default()
             .borders(Borders::TOP)
             .border_style(Style::default().fg(theme.border))
@@ -21,7 +26,7 @@ pub(crate) fn draw_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App,
     frame.render_widget(footer, area);
 }
 
-fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
+fn context_shortcuts(app: &App, theme: Theme, width: usize) -> Vec<Span<'static>> {
     if app.has_modal_focus() {
         return Vec::new();
     }
@@ -101,6 +106,7 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
             ]
         }
     };
+    let primary_key = items.first().map(|(key, _)| *key);
     if app.can_adjust_process_panel_height() {
         items.insert(0, ("h/H/Alt+H", "Height"));
     }
@@ -142,8 +148,38 @@ fn context_shortcuts(app: &App, theme: Theme) -> Vec<Span<'static>> {
     items.push(("Ctrl+T", "Profiles"));
     items.push(("F12", "Color"));
     items.push(("F1/?", "Help"));
+    items.push(("Tab", "Focus"));
 
-    shortcut_spans(&items, theme)
+    let mut prioritized = Vec::new();
+    for key in [
+        Some("ESC"),
+        Some("F1/?"),
+        Some("Ctrl+R"),
+        app.is_display_paused().then_some("Ctrl+P"),
+        Some("Tab"),
+        primary_key,
+        Some("Ctrl+P"),
+        Some("Ctrl+T"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(index) = items.iter().position(|(candidate, _)| *candidate == key) {
+            prioritized.push(items.remove(index));
+        }
+    }
+    prioritized.extend(items);
+    let mut fitted = Vec::new();
+    let mut used = 0;
+    for item in prioritized {
+        let item_width = Line::from(shortcut_spans(&[item], theme)).width();
+        let separator = if fitted.is_empty() { 0 } else { 2 };
+        if used + separator + item_width <= width {
+            used += separator + item_width;
+            fitted.push(item);
+        }
+    }
+    shortcut_spans(&fitted, theme)
 }
 
 pub(crate) fn shortcut_spans(
