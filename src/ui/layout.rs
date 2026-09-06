@@ -334,7 +334,8 @@ fn graph_span_control_areas(area: Rect, app: &App) -> GraphSpanControlAreas {
     if area.height == 0 {
         return GraphSpanControlAreas::default();
     }
-    let title_width = Line::from(graph_workspace_title_label(app)).width() as u16;
+    let title_width = (Line::from(graph_workspace_title_label(app)).width()
+        + crate::ui::widgets::block::PANEL_NAME_PADDING_WIDTH) as u16;
     let zoom_out_x = area
         .x
         .saturating_add(TITLE_INSET)

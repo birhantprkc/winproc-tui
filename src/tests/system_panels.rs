@@ -210,7 +210,7 @@ fn memory_and_gpu_panels_show_the_new_summary_rows() {
     let rendered = render_app_to_text(&app, 180, 30);
 
     assert!(rendered.contains("MEM"), "{rendered}");
-    assert!(rendered.contains("GPU 1/1"), "{rendered}");
+    assert!(rendered.contains("GPU  1/1"), "{rendered}");
     assert!(!rendered.contains("[Max samples: 7200]"), "{rendered}");
     for label in [
         "In use",
@@ -514,11 +514,11 @@ fn memory_uses_columns_and_gpu_uses_one_based_pages() {
 
     app.select_resource_panel(app::ResourcePanel::Gpu);
     let gpu_first = render_app_to_text(&app, 180, 30);
-    assert!(gpu_first.contains("GPU 1/2"), "{gpu_first}");
+    assert!(gpu_first.contains("GPU  1/2"), "{gpu_first}");
 
     app.select_next_resource_page();
     let gpu_second = render_app_to_text(&app, 180, 30);
-    assert!(gpu_second.contains("GPU 2/2"), "{gpu_second}");
+    assert!(gpu_second.contains("GPU  2/2"), "{gpu_second}");
     assert_eq!(app.status, "GPU adapter 2/2");
 }
 

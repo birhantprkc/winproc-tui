@@ -229,7 +229,7 @@ fn tracked_only_count_reports_visible_rows_not_stored_names() {
     assert_eq!(app.visible_tracked_process_count(), 0);
     assert!(app.status.contains("0 visible"));
     assert!(
-        rendered.contains("PROCESSES · 0 visible · Flat(v) · ☑ Tracked-only(Shift+T)"),
+        rendered.contains("PROCESSES  · 0 visible · Flat(v) · ☑ Tracked-only(Shift+T)"),
         "{rendered}"
     );
 }
@@ -252,7 +252,7 @@ fn process_table_title_shows_concise_active_view_state() {
 
     assert!(
         rendered.contains(
-            "PROCESSES · 1 visible · Flat(v) · ☑ Tracked-only(Shift+T) · Filter \"target\""
+            "PROCESSES  · 1 visible · Flat(v) · ☑ Tracked-only(Shift+T) · Filter \"target\""
         ),
         "{rendered}"
     );
@@ -315,7 +315,7 @@ fn process_table_title_omits_named_list_and_unsaved_marker() {
 
     let saved = render_app_to_text(&app, 120, 30);
     assert!(
-        saved.contains("PROCESSES · 1 visible · Flat(v) · ☐ Tracked-only(Shift+T)"),
+        saved.contains("PROCESSES  · 1 visible · Flat(v) · ☐ Tracked-only(Shift+T)"),
         "{saved}"
     );
     assert!(!saved.contains("List \"API\""), "{saved}");
@@ -324,7 +324,7 @@ fn process_table_title_omits_named_list_and_unsaved_marker() {
     app.normalized_watch_names.insert("worker.exe".to_string());
     let dirty = render_app_to_text(&app, 120, 30);
     assert!(
-        dirty.contains("PROCESSES · 1 visible · Flat(v) · ☐ Tracked-only(Shift+T)"),
+        dirty.contains("PROCESSES  · 1 visible · Flat(v) · ☐ Tracked-only(Shift+T)"),
         "{dirty}"
     );
     assert!(!dirty.contains("List \"API*\""), "{dirty}");

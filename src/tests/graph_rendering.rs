@@ -291,7 +291,7 @@ fn tab_moves_focus_chrome_from_mem_to_gpu() {
 }
 
 #[test]
-fn top_level_panel_titles_follow_their_border_color_in_all_color_schemes() {
+fn top_level_panel_names_reverse_colors_and_retain_focus_in_all_color_schemes() {
     let screen = Rect::new(0, 0, 180, 60);
     for theme_index in 0..ui::THEMES.len() {
         let mut app = make_test_app(3, 10);
@@ -347,17 +347,16 @@ fn top_level_panel_titles_follow_their_border_color_in_all_color_schemes() {
                 let expected = if panel == focused_panel {
                     app.theme().focus_border
                 } else {
-                    app.theme().border
+                    app.theme().muted
                 };
                 assert_eq!(
-                    buffer[(x, y)].fg,
+                    buffer[(x, y)].bg,
                     expected,
                     "theme={theme_index}, focus={focused_panel:?}, title={title}"
                 );
-                let should_be_bold = panel != FocusedPanel::DetailsGraph || panel == focused_panel;
-                assert_eq!(
+                assert_eq!(buffer[(x, y)].fg, app.theme().panel);
+                assert!(
                     buffer[(x, y)].modifier.contains(Modifier::BOLD),
-                    should_be_bold,
                     "unexpected title weight: theme={theme_index}, focus={focused_panel:?}, title={title}"
                 );
             }
@@ -818,7 +817,7 @@ fn compact_workspace_keeps_process_row_panel_title_remove_and_resize_message() {
 
     let rendered = render_app_to_text(&app, screen.width, screen.height);
     assert!(
-        rendered.contains("GRAPHS · 1 Slot · Span 60s"),
+        rendered.contains("GRAPHS  · 1 Slot · Span 60s"),
         "{rendered}"
     );
     assert!(rendered.contains("Slot#1"), "{rendered}");
@@ -1286,7 +1285,7 @@ fn graph_panel_title_omits_the_verbose_slot_list() {
         .collect::<String>();
 
     assert!(
-        title_row.contains("GRAPHS · 8 Slots · Span 60s"),
+        title_row.contains("GRAPHS  · 8 Slots · Span 60s"),
         "{title_row}"
     );
     assert!(!title_row.contains("graph-"), "{title_row}");
@@ -1751,7 +1750,7 @@ fn details_rendering_shows_workspace_title_and_active_samples() {
     let rendered = render_app_to_text(&app, 120, 45);
 
     assert!(
-        rendered.contains("GRAPHS · 1 Slot · Span 60s"),
+        rendered.contains("GRAPHS  · 1 Slot · Span 60s"),
         "{rendered}"
     );
     assert!(!rendered.contains("Slot#1/"), "{rendered}");
@@ -1759,8 +1758,8 @@ fn details_rendering_shows_workspace_title_and_active_samples() {
         rendered.contains("Slot#1 · PrivBytes · proc-0 · B-A: --"),
         "{rendered}"
     );
-    assert!(rendered.contains("SAMPLES · Slot#1"), "{rendered}");
-    assert!(!rendered.contains("SAMPLES · Slot#1/"), "{rendered}");
+    assert!(rendered.contains("SAMPLES  · Slot#1"), "{rendered}");
+    assert!(!rendered.contains("SAMPLES  · Slot#1/"), "{rendered}");
     assert!(rendered.contains("A/B Time      PrivBytes"), "{rendered}");
     assert!(rendered.contains("MA5:"), "{rendered}");
     assert!(!rendered.contains("Details"), "{rendered}");
@@ -1800,7 +1799,7 @@ fn multi_graph_rendering_uses_one_shared_samples_inspector() {
     assert_eq!(rendered.matches("d: Delta").count(), 1, "{rendered}");
     assert_eq!(rendered.matches("l: Auto").count(), 1, "{rendered}");
     assert_eq!(
-        rendered.matches("SAMPLES · Slot#2 · proc-0").count(),
+        rendered.matches("SAMPLES  · Slot#2 · proc-0").count(),
         1,
         "{rendered}"
     );

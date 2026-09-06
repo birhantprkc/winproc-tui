@@ -1114,7 +1114,8 @@ fn process_title_control_area(
                     .saturating_sub(text_width(&indicator) as u16)
             })
             .unwrap_or_else(|| area.right());
-    let mut prefix_width = text_width(PROCESS_TITLE);
+    let mut prefix_width =
+        text_width(PROCESS_TITLE) + crate::ui::widgets::block::PANEL_NAME_PADDING_WIDTH;
     for segment in process_table_state_segments(app) {
         prefix_width = prefix_width.saturating_add(text_width(TITLE_SEPARATOR));
         if segment.kind == target {

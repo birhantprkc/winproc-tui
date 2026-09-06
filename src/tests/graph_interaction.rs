@@ -1464,7 +1464,7 @@ fn log_view_panel_titles_omit_history_counts() {
     assert!(!rendered.contains("[Samples:"), "{rendered}");
     assert!(
         rendered.contains(
-            "PROCESSES · 1 visible · Flat (Tree unavailable in LOG) · ☐ Tracked-only(Shift+T)"
+            "PROCESSES  · 1 visible · Flat (Tree unavailable in LOG) · ☐ Tracked-only(Shift+T)"
         ),
         "{rendered}"
     );
@@ -1734,7 +1734,7 @@ fn graph_workspace_layout_reaches_required_counts_in_every_column_mode() {
             let rendered = render_app_to_text(&app, screen.width, screen.height);
             let slot_label = if count == 1 { "Slot" } else { "Slots" };
             assert!(
-                rendered.contains(&format!("GRAPHS · {count} {slot_label} · Span 60s")),
+                rendered.contains(&format!("GRAPHS  · {count} {slot_label} · Span 60s")),
                 "count={count}, mode={mode:?}\n{rendered}"
             );
             assert!(rendered.contains(&format!("Slot#{count}")), "{rendered}");

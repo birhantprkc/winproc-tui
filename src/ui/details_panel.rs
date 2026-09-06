@@ -460,7 +460,9 @@ fn samples_inspector_title(
     if let Some(identity) = slot.process_identity() {
         let full_title = Line::from(format!("SAMPLES · {slot_label} · {}", identity.name));
         let available_width = usize::from(area_width.saturating_sub(2));
-        if full_title.width() <= available_width {
+        if full_title.width() + crate::ui::widgets::block::PANEL_NAME_PADDING_WIDTH
+            <= available_width
+        {
             spans.push(Span::styled(" · ", Style::default().fg(theme.muted)));
             spans.push(Span::styled(
                 identity.name.clone(),

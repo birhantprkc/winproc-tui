@@ -6,6 +6,8 @@ use ratatui::{
 
 use crate::ui::{Theme, theme::contrasting_foreground};
 
+pub(crate) const PANEL_NAME_PADDING_WIDTH: usize = 2;
+
 pub(crate) fn panel_title(title: &'static str) -> Line<'static> {
     Line::from(Span::styled(
         title,
@@ -27,7 +29,7 @@ pub(crate) fn panel_block_focused<'a>(
     theme: Theme,
     focused: bool,
 ) -> Block<'a> {
-    let block = panel_block(title, theme);
+    let block = panel_block(reversed_panel_name(title.into(), theme, focused), theme);
     if focused {
         block
             .border_type(BorderType::Thick)
@@ -35,6 +37,30 @@ pub(crate) fn panel_block_focused<'a>(
     } else {
         block
     }
+}
+
+fn reversed_panel_name<'a>(mut title: Line<'a>, theme: Theme, focused: bool) -> Line<'a> {
+    if let Some(first) = title.spans.first_mut() {
+        // Only the leading panel name is reversed; counts and controls retain their styles.
+        let name_len = first.content.find(' ').unwrap_or(first.content.len());
+        if name_len == 0 {
+            return title;
+        }
+        let suffix = Span::styled(first.content[name_len..].to_string(), first.style);
+        first.content = format!(" {} ", &first.content[..name_len]).into();
+        first.style = Style::default()
+            .fg(theme.panel)
+            .bg(if focused {
+                theme.focus_border
+            } else {
+                theme.muted
+            })
+            .add_modifier(Modifier::BOLD);
+        if !suffix.content.is_empty() {
+            title.spans.insert(1, suffix);
+        }
+    }
+    title
 }
 
 pub(crate) fn modal_title(title: impl Into<String>, theme: Theme) -> Line<'static> {
@@ -70,7 +96,7 @@ pub(crate) fn graph_workspace_block<'a>(
     focused: bool,
 ) -> Block<'a> {
     Block::default()
-        .title(title.into())
+        .title(reversed_panel_name(title.into(), theme, focused))
         .borders(Borders::TOP)
         .border_type(if focused {
             BorderType::Thick
@@ -173,5 +199,44 @@ mod tests {
             rendered_corner(graph_card_block("Slot#1", theme, false)).0,
             "╭"
         );
+    }
+
+    #[test]
+    fn panel_names_are_reversed_without_recoloring_metadata_or_content() {
+        for theme in crate::ui::THEMES {
+            for focused in [false, true] {
+                let area = Rect::new(0, 0, 32, 4);
+                let mut buffer = Buffer::empty(area);
+                panel_block_focused("GPU 1/2", theme, focused).render(area, &mut buffer);
+                let name_bg = if focused {
+                    theme.focus_border
+                } else {
+                    theme.muted
+                };
+                for x in 1..=5 {
+                    assert_eq!(buffer[(x, 0)].fg, theme.panel);
+                    assert_eq!(buffer[(x, 0)].bg, name_bg);
+                    assert!(buffer[(x, 0)].modifier.contains(Modifier::BOLD));
+                }
+                assert_eq!(buffer[(1, 0)].symbol(), " ");
+                assert_eq!(buffer[(5, 0)].symbol(), " ");
+                assert_eq!(buffer[(7, 0)].symbol(), "1");
+                assert_eq!(buffer[(7, 0)].bg, theme.panel);
+                assert_eq!(buffer[(1, 1)].bg, theme.panel);
+
+                let title = Line::from(vec![
+                    Span::raw("GRAPHS · 2 Slots"),
+                    Span::styled(" [-]", Style::default().fg(theme.key_hint)),
+                ]);
+                graph_workspace_block(title, theme, focused).render(area, &mut buffer);
+                assert_eq!(buffer[(0, 0)].fg, theme.panel);
+                assert_eq!(buffer[(0, 0)].bg, name_bg);
+                assert_eq!(buffer[(0, 0)].symbol(), " ");
+                assert_eq!(buffer[(7, 0)].symbol(), " ");
+                assert_eq!(buffer[(7, 0)].bg, name_bg);
+                assert_eq!(buffer[(9, 0)].bg, theme.panel);
+                assert_eq!(buffer[(19, 0)].fg, theme.key_hint);
+            }
+        }
     }
 }
