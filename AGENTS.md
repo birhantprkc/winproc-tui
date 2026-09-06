@@ -62,7 +62,7 @@ If the specifications and implementation conflict, inspect the implementation fi
 
 - Use English Conventional Commits for commit messages.
 - Every commit must include a concise commit message body that summarizes the changes so readers can understand what changed when reviewing the commit history.
-- Keep commits scoped. Do not include unrelated dirty files or local-only artifacts.
+- Keep commits scoped to one Issue when Issue-backed, even when several Issues share a branch or touch the same files. Combine work from different Issues only when the maintainer explicitly requests it. Do not include unrelated dirty files or local-only artifacts.
 - When a coherent unit of AI work is complete, commit it promptly.
 - Do not commit ignored local-only files such as `notes/` or `logs/` unless the user explicitly asks to track them.
 - When committing implementation work, include updates to the affected canonical documentation in the same commit. Do not change design documents mechanically when their owned behavior is unaffected.
@@ -81,7 +81,7 @@ These branch / commit / push rules apply to AI agents. The maintainer usually in
 - AI agents must not commit to `main` unless the user explicitly instructs them to do so.
 - Create an independent agent branch from the current local `main`. Start from another branch only when the user explicitly names that base or when the task explicitly continues an existing agent branch.
 - If the task only creates or updates ignored local-only files such as `notes/` or `logs/`, stay on the current branch and do not create an agent branch.
-- Humans may review one or more AI commits together, ask for fixes on the same agent branch, then squash merge to `main` with one English summary commit.
+- Humans may review multiple Issues together and request fixes on the same agent branch. Preserve a separate main integration commit for each Issue, following Main Integration Rules.
 - After an agent branch has been squash merged to `main`, remove its completed clean worktree and delete the branch immediately. Apply the same verified cleanup when the user decides to discard the work.
 - Do not force-push or rewrite published `main`.
 - AI agents must not push `main` unless the user explicitly asks to push.
@@ -106,15 +106,17 @@ These branch / commit / push rules apply to AI agents. The maintainer usually in
 These rules apply when the user asks an AI agent to integrate a completed agent branch into `main`.
 
 - Before integrating an agent branch into `main`, confirm the related GitHub Issue number when the work requires or already has an Issue.
-- Prefer squash-merging completed agent branch work into `main` as one coherent English Conventional Commit.
-- When the squash merge corresponds to a GitHub Issue, append the issue number to the commit title as `(Issue #n)`, for example `fix: place graph a/b labels on x-axis (Issue #3)`, so `git log --oneline` remains easy to scan without confusing the Issue number with a PR number.
+- Prefer one English Conventional Commit per Issue when integrating into `main`. Squash implementation and follow-up commits only within that Issue.
+- A shared branch, overlapping files, or a request to merge or push several Issues does not authorize combining them into one commit. Combining different Issues requires an explicit maintainer request.
+- Before integration, map the requested Issues to their commits and identify dependency order. For a branch containing multiple Issues, preserve separate Issue commits or reconstruct them by Issue before updating `main`; do not squash the whole branch. Verify that the final tree matches the intended combined result.
+- When an integration commit corresponds to a GitHub Issue, append the issue number to the commit title as `(Issue #n)`, for example `fix: place graph a/b labels on x-axis (Issue #3)`, so `git log --oneline` remains easy to scan without confusing the Issue number with a PR number.
 - If the work completes a GitHub Issue, include `Closes #n` in the commit body. Use `Refs #n` instead if the Issue should remain open.
-- A typical local integration sequence, run against the canonical `main` worktree, is:
+- For a branch containing only one Issue, a typical local integration sequence against the canonical `main` worktree is:
 
 ```powershell
 git -C <main-worktree> status --short --branch
 git -C <main-worktree> merge --squash agent/<short-topic>
-git -C <main-worktree> commit -m "<message> (Issue #n)" -m "Closes #n"
+git -C <main-worktree> commit -m "<message> (Issue #n)" -m "<concise summary of the changes>" -m "Closes #n"
 ```
 
 - Pushing `main` is normally performed by the user. AI agents must not run `git push origin main` unless the user explicitly asks them to push.
