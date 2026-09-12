@@ -167,6 +167,8 @@ pub(in crate::tests) fn make_test_app_with_workers(
         network_next_id: 0,
         file_users_worker: crate::samplers::file_users::FileUsersWorker::test_pair().0,
         file_users: crate::app::file_users::FileUsersView::default(),
+        scheduling_worker: crate::samplers::scheduling::SchedulingWorker::test_pair().0,
+        scheduling: crate::app::scheduling::SchedulingView::default(),
         file_users_next_id: 0,
         sampling_in_progress: false,
         snapshot,

@@ -21,6 +21,7 @@ mod process_tree;
 mod quit;
 mod recording;
 mod sampling;
+mod scheduling;
 mod summary_rendering;
 mod support;
 mod system_info;

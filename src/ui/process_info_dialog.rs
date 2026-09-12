@@ -50,8 +50,12 @@ pub(crate) fn draw_process_info_dialog(
 ) {
     let layout = process_info_dialog_layout_for_screen(screen);
     frame.render_widget(Clear, layout.area);
+    let mut dialog_theme = theme;
+    if app.scheduling.confirmation.is_some() {
+        dialog_theme.focus_border = theme.warning;
+    }
     frame.render_widget(
-        modal_block_focused(process_info_title(app, theme), theme),
+        modal_block_focused(process_info_title(app, dialog_theme), dialog_theme),
         layout.area,
     );
     draw_tabs(
@@ -80,6 +84,14 @@ pub(crate) fn draw_process_info_dialog(
             theme,
         ),
         ProcessInfoTab::Files => draw_open_files_tab(frame, layout.content, app, theme),
+        ProcessInfoTab::Scheduling => render_scrollable_lines(
+            frame,
+            layout.content,
+            super::scheduling::lines(app, layout.content.width, theme),
+            app.scheduling.scroll.offset,
+            app.process_info_focus == ProcessInfoFocus::Content,
+            theme,
+        ),
         ProcessInfoTab::Network => {
             super::network::draw_process_tab(frame, layout.content, app, theme)
         }
@@ -131,6 +143,7 @@ pub(crate) fn process_info_total_rows(app: &App) -> usize {
         ProcessInfoTab::Metrics => process_info_metrics_lines(app, width, app.theme()).len(),
         ProcessInfoTab::Image => process_info_image_lines(app, width, app.theme()).len(),
         ProcessInfoTab::Files => open_files_total_rows(app),
+        ProcessInfoTab::Scheduling => super::scheduling::lines(app, width, app.theme()).len(),
         ProcessInfoTab::Dlls => process_modules_total_rows(app, width),
         ProcessInfoTab::Environment => process_environment_total_rows(app, width),
         ProcessInfoTab::Network if app.process_network.detail => {
@@ -519,7 +532,11 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
     {
         return super::network::shortcuts(&app.process_network, false, width, theme);
     }
-    let items = if app.process_info_focus == ProcessInfoFocus::Tabs
+    let items = if app.scheduling.confirmation.is_some() {
+        vec![("Enter", "apply"), ("Esc", "cancel")]
+    } else if app.scheduling.applying {
+        Vec::new()
+    } else if app.process_info_focus == ProcessInfoFocus::Tabs
         && !app.process_info_tab.content_is_focusable()
     {
         vec![("←/→", "tabs"), ("↑/↓", "scroll"), ("Esc", "close")]
@@ -542,6 +559,14 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
     } else {
         match app.process_info_tab {
             ProcessInfoTab::Network => Vec::new(),
+            ProcessInfoTab::Scheduling => vec![
+                ("↑/↓", "select"),
+                ("Enter", "review"),
+                ("Ctrl+Z", "restore"),
+                ("Ctrl+U", "refresh"),
+                ("Tab", "next"),
+                ("Esc", "close"),
+            ],
             ProcessInfoTab::Metrics => vec![
                 ("↑/↓", "scroll"),
                 ("Ctrl+←/→", "tabs"),
@@ -597,7 +622,13 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
         }
         spans.push(Span::styled(
             key.to_string(),
-            Style::default().fg(theme.key_hint),
+            if app.scheduling.confirmation.is_some() {
+                Style::default()
+                    .fg(theme.warning)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.key_hint)
+            },
         ));
         spans.push(Span::styled(
             format!(" {label}"),

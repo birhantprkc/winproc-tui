@@ -26,8 +26,9 @@ All live collectors verify that the process still has the expected identity. A P
 | DLLs | Takes an explicit module and file-metadata snapshot on its own worker. |
 | Environment | Reads the live target's remote environment block on an independent worker and clears values when the dialog closes. |
 | Network | Captures TCP/UDP endpoints for the fixed live process through the shared Network worker on first activation or explicit refresh. |
+| Scheduling | Reads the fixed live process's CPU priority class on its own worker, with explicit confirmed changes and restoration. |
 
-Image, Files, DLL, Environment, and Network collection never runs as part of ordinary sampling. Each request carries the dialog generation; refreshable tabs also carry request IDs. Results from a closed, reopened, or superseded dialog are rejected even if they refer to the same PID.
+Image, Files, DLL, Environment, Network, and Scheduling collection never runs as part of ordinary sampling. Each request carries the dialog generation; collectors can also carry request IDs to distinguish superseded work. Results from a closed, reopened, or superseded dialog are rejected even if they refer to the same PID.
 
 Image collection may inspect loaded `coreclr.dll` or `clr.dll` to report the active .NET runtime version. This does not add module enumeration to normal sampling or Recording.
 
@@ -88,6 +89,16 @@ The four protocol/family tables are captured separately, so the report describes
 Owner verification brackets table capture with a held process handle and native creation time. Rows remain visible with an unavailable owner when verification fails. Opening Process Info from a global row performs a fresh creation-time check on the worker; an exited or replaced process cannot be opened by reusing its PID. The Process Info target does not depend on the current Processes selection or filter. Closing Process Info returns to the retained global results.
 
 Network investigation remains available during Live, display pause, and Recording. Endpoint reports are session-local and never enter samples, histories, configuration, Recording, or exports. Existing metric recording continues independently. Log view has no global Network browser and the process tab displays its not-recorded state. There is no DNS lookup, traffic capture, periodic endpoint polling, or endpoint modification.
+
+## Scheduling
+
+Scheduling captures the CPU priority class on first activation or explicit refresh. Its worker retains a process handle after verifying the executable name and creation time against the fixed dialog identity. Subsequent reads and writes use that same process object and check that it is still alive; they do not reopen a PID for each operation. Read access without change permission remains useful and is shown as read-only. Closing the dialog invalidates queued work and releases the handle; reopened sessions reject old results.
+
+The editor offers Idle, Below normal, Normal, Above normal, and High. An existing Realtime or unknown class is displayed but cannot be selected or restored. Changing a class requires reviewing the current and proposed values and then explicitly confirming. While application is pending, the dialog waits for the result before accepting navigation or another action. Display pause and Log view disable changes; Log view does not start a live Scheduling request. Recording may continue independently, without recording the setting or action.
+
+Immediately before changing priority, the worker re-reads the class and rejects a change if it differs from the value confirmed by the user. It reads back after a successful API call and distinguishes verified success, failure before application, and an accepted change whose readback failed or differs. Windows does not provide an atomic compare-and-set operation for priority classes; another actor can still race the short read/write interval. The tool does not impose an ongoing policy over other actors.
+
+Each accepted change retains one previous class and the class written by this session. Explicit restoration requires that the observed current class still equals the class this session wrote, and uses the same review, permission, lifetime, and readback checks. Restoration does not overwrite a detected external change. Refreshing and switching tabs retain this restoration point; closing the dialog discards it. Nothing restores automatically on close or application exit, and no priority policy is saved in configuration or Investigation Profiles. CPU quota, I/O priority, Efficiency mode, and affinity are outside this editor's scope.
 
 ## Input and Layout Boundaries
 

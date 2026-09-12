@@ -249,6 +249,29 @@ const PROCESSES_ROWS: &[HelpItem] = &[
     },
 ];
 
+const SCHEDULING_ROWS: &[HelpItem] = &[
+    HelpItem {
+        key: "↑/↓, Home/End",
+        label: "Select priority; Enter reviews the change",
+    },
+    HelpItem {
+        key: "Enter / Esc (review)",
+        label: "Apply / cancel; changes need a live display",
+    },
+    HelpItem {
+        key: "Ctrl+U / Ctrl+Z",
+        label: "Refresh / review restoring the previous value",
+    },
+    HelpItem {
+        key: "PgUp/PgDn",
+        label: "Scroll details and notices",
+    },
+    HelpItem {
+        key: "Tab / Ctrl+←/→",
+        label: "Focus tabs / change tab",
+    },
+];
+
 const RAM_VRAM_ROWS: &[HelpItem] = &[
     HelpItem {
         key: "←/→",
@@ -612,6 +635,11 @@ const LEFT_SECTIONS: &[HelpSection] = &[
         title: "Find file users",
         focus_hint: Some("on demand"),
         rows: FILE_USERS_ROWS,
+    },
+    HelpSection {
+        title: "Scheduling",
+        focus_hint: Some("Process Info"),
+        rows: SCHEDULING_ROWS,
     },
 ];
 

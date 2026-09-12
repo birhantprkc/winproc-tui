@@ -222,6 +222,12 @@ Metrics use compact decimal byte units and adaptive process I/O `Kbps` / `Mbps` 
 
 In `DISPLAY PAUSED`, both the current Snapshot and history come from the paused display state. In Log view, Current is the final recorded Snapshot, metric history comes from the loaded recording, and no live Process Info worker request is made. Static fields that are absent from the recording are displayed as `--`.
 
+## Process Priority
+
+Process Info Scheduling reads the CPU scheduling priority class with [GetPriorityClass](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getpriorityclass). Explicit changes use [SetPriorityClass](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-setpriorityclass) and require `PROCESS_SET_INFORMATION`; query-only access can still display the current class. The collector retains a handle and verifies process creation time with `GetProcessTimes`.
+
+The displayed class is an on-demand value, separate from CPU utilization and per-thread priority. Idle, Below normal, Normal, Above normal, and High are selectable. Realtime and unknown native values are display-only. Priority values, confirmation state, and restoration points never enter samples, recordings, exports, configuration, or Investigation Profiles. The interaction and lifetime rules belong to [Process Investigation](process-investigation.md#scheduling).
+
 ## Open Files
 
 The Process Info `Files` tab displays one entry per named disk-file handle of the fixed live process. Repeated paths remain separate entries, sorted by path and original process handle value.

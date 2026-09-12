@@ -354,6 +354,19 @@ impl App {
         }
 
         if self.show_process_info_dialog {
+            if self.scheduling.confirmation.is_some() || self.scheduling.applying {
+                self.on_scheduling_key(key);
+                return Ok(());
+            }
+            if self.process_info_tab == crate::app::ProcessInfoTab::Scheduling
+                && self.process_info_focus == ProcessInfoFocus::Content
+                && !matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
+                && !(key.modifiers.contains(KeyModifiers::CONTROL)
+                    && matches!(key.code, KeyCode::Left | KeyCode::Right))
+            {
+                self.on_scheduling_key(key);
+                return Ok(());
+            }
             if self.process_info_tab == crate::app::ProcessInfoTab::Files
                 && self.process_info_focus == ProcessInfoFocus::Content
                 && !matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
@@ -598,6 +611,7 @@ impl App {
                         }
                         crate::app::ProcessInfoTab::Metrics => {}
                         crate::app::ProcessInfoTab::Network => self.refresh_network(false),
+                        crate::app::ProcessInfoTab::Scheduling => self.refresh_scheduling(),
                     }
                 }
                 KeyCode::Char(ch)
@@ -1640,6 +1654,15 @@ impl App {
         if self.show_process_info_dialog {
             let tab_click = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
                 && process_info_tab_at(screen_area, mouse.column, mouse.row).is_some();
+            if self.scheduling.confirmation.is_some() || self.scheduling.applying {
+                return;
+            }
+            if self.process_info_tab == crate::app::ProcessInfoTab::Scheduling
+                && !tab_click
+                && self.scheduling_mouse_selection(mouse, screen_area)
+            {
+                return;
+            }
             if self.process_info_tab == crate::app::ProcessInfoTab::Network && !tab_click {
                 self.on_network_mouse(mouse, false, screen_area);
                 return;

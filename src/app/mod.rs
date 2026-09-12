@@ -9,6 +9,7 @@ pub(crate) mod network;
 pub(crate) mod open_files;
 pub(crate) mod path_completion;
 pub(crate) mod profiles;
+pub(crate) mod scheduling;
 pub(crate) mod state;
 pub(crate) mod system_info;
 
@@ -112,6 +113,7 @@ pub(crate) fn run_tui(
         dirty |= app.poll_process_environment_results()?;
         dirty |= app.poll_network_results();
         dirty |= app.poll_file_users_results();
+        dirty |= app.poll_scheduling_results();
         dirty |= app.poll_log_workers();
         dirty |= app.request_due_process_info()?;
         dirty |= app.request_due_open_files_at(Instant::now())?;

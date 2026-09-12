@@ -66,6 +66,8 @@ The global Network browser and Process Info Network tab share an independent Net
 
 Find file users has a separate controller and an isolated helper process for system-wide disk-file handle inspection. The helper shares handle-table, duplication, and path-resolution primitives with Files; it never enters the normal startup, configuration, single-instance, or terminal lifecycle. Bounded protocol messages, a latest-result slot, cancellation, deadlines, and job ownership bound scan work and cleanup. The browser owns queries and results independently of sampling and Recording.
 
+Scheduling has an independent worker for priority reads and explicit confirmed changes. A session retains one verified process handle, uses a bounded request queue, and checks dialog generation before applying queued work. Its reports and restoration point belong to Process Info, outside sampling, histories, Recording, and configuration.
+
 ### 3.2 Keep state ownership centralized
 
 `App` owns Live, paused, Recording, Log-list, and Log-view state. Display accessors select the appropriate snapshot and history without asking widgets to maintain activity-specific copies.
