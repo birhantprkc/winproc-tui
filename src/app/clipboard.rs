@@ -39,6 +39,17 @@ impl App {
     }
 
     pub(crate) fn copy_open_files_to_clipboard(&mut self) -> Result<()> {
+        if self.open_files_show_detail {
+            let Some(entry) = crate::ui::open_files::selected_entry(self) else {
+                return Ok(());
+            };
+            let text = entry.plain_text();
+            self.status = match copy_text_to_clipboard(&text) {
+                Ok(()) => "Copied file handle attributes".into(),
+                Err(error) => format!("Clipboard copy failed: {error}"),
+            };
+            return Ok(());
+        }
         if self.open_files_result.is_none() {
             self.status = "No open file paths to copy".to_string();
             return Ok(());
@@ -51,19 +62,13 @@ impl App {
 
         let text = entries
             .iter()
-            .map(|entry| {
-                if entry.handle_count > 1 {
-                    format!("{}\t{}", entry.path, entry.handle_count)
-                } else {
-                    entry.path.clone()
-                }
-            })
+            .map(|entry| entry.plain_text())
             .collect::<Vec<_>>()
             .join("\n");
 
         match copy_text_to_clipboard(&text) {
             Ok(()) => {
-                self.status = format!("Copied {} open file paths", entries.len());
+                self.status = format!("Copied {} file handle rows", entries.len());
             }
             Err(error) => {
                 self.status = format!("Clipboard copy failed: {error}");

@@ -5,6 +5,7 @@ pub(crate) mod log_format;
 pub(crate) mod logs;
 pub(crate) mod navigation;
 pub(crate) mod network;
+pub(crate) mod open_files;
 pub(crate) mod path_completion;
 pub(crate) mod profiles;
 pub(crate) mod state;

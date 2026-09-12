@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     ffi::OsString,
     mem::size_of,
     os::windows::ffi::OsStringExt,
@@ -23,6 +22,8 @@ use winapi::{
     },
 };
 
+pub(crate) use crate::model::open_files::OpenFileEntry;
+use crate::model::open_files::{FileAttributeError, OpenFileHandle};
 use crate::model::{ProcessIdentity, ProcessRow};
 
 const SYSTEM_EXTENDED_HANDLE_INFORMATION: ULONG = 64;
@@ -44,12 +45,20 @@ unsafe extern "system" {
         system_information_length: ULONG,
         return_length: *mut ULONG,
     ) -> i32;
+    fn NtQueryInformationFile(
+        file_handle: HANDLE,
+        io_status_block: *mut IoStatusBlock,
+        file_information: LPVOID,
+        length: ULONG,
+        information_class: ULONG,
+    ) -> i32;
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct OpenFileEntry {
-    pub(crate) path: String,
-    pub(crate) handle_count: usize,
+#[repr(C)]
+#[derive(Default)]
+struct IoStatusBlock {
+    status_or_pointer: usize,
+    information: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -283,7 +292,14 @@ pub(crate) fn collect_open_files_for_process(process: &ProcessRow) -> OpenFilesR
                 }
                 file_handles += 1;
                 if let Some(path) = final_path_for_handle(handle.0) {
-                    paths.push(path);
+                    paths.push((
+                        path,
+                        OpenFileHandle {
+                            value: entry.handle_value,
+                            access: query_file_attribute(handle.0, 8),
+                            mode: query_file_attribute(handle.0, 16),
+                        },
+                    ));
                 } else {
                     unnamed_file_handles += 1;
                 }
@@ -299,7 +315,7 @@ pub(crate) fn collect_open_files_for_process(process: &ProcessRow) -> OpenFilesR
         file_handles,
         inaccessible_handles,
         unnamed_file_handles,
-        entries: aggregate_paths(paths),
+        entries: sort_file_handles(paths),
         error: None,
     }
 }
@@ -459,15 +475,44 @@ fn normalize_final_path(wide: &[u16]) -> String {
     }
 }
 
-fn aggregate_paths(paths: Vec<String>) -> Vec<OpenFileEntry> {
-    let mut counts = BTreeMap::<String, usize>::new();
-    for path in paths {
-        *counts.entry(path).or_default() += 1;
+fn query_file_attribute(
+    handle: HANDLE,
+    information_class: ULONG,
+) -> Result<u32, FileAttributeError> {
+    let mut io_status = IoStatusBlock::default();
+    let mut value = 0u32;
+    // SAFETY: the duplicated disk-file handle remains owned by the caller. These synchronous
+    // FileAccessInformation/FileModeInformation queries each return one ULONG, and both aligned
+    // output buffers remain live for the call. No file data or current position is changed.
+    let status = unsafe {
+        NtQueryInformationFile(
+            handle,
+            &mut io_status,
+            &mut value as *mut u32 as LPVOID,
+            size_of::<u32>() as ULONG,
+            information_class,
+        )
+    };
+    if status != 0 {
+        return Err(FileAttributeError::NtStatus(status));
     }
-    counts
+    if io_status.information != size_of::<u32>() {
+        return Err(FileAttributeError::ShortReply);
+    }
+    Ok(value)
+}
+
+fn sort_file_handles(paths: Vec<(String, OpenFileHandle)>) -> Vec<OpenFileEntry> {
+    let mut entries = paths
         .into_iter()
-        .map(|(path, handle_count)| OpenFileEntry { path, handle_count })
-        .collect()
+        .map(|(path, handle)| OpenFileEntry { path, handle })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then(a.handle.value.cmp(&b.handle.value))
+    });
+    entries
 }
 
 struct OwnedHandle(HANDLE);
@@ -487,6 +532,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn file_attribute_queries_preserve_native_failure_codes() {
+        for class in [8, 16] {
+            assert_eq!(
+                query_file_attribute(null_mut(), class),
+                Err(FileAttributeError::NtStatus(0xc0000008u32 as i32))
+            );
+        }
+    }
+
+    #[test]
     fn normalize_final_path_removes_extended_prefix() {
         let wide = r"\\?\C:\tmp\app.log".encode_utf16().collect::<Vec<_>>();
 
@@ -503,17 +558,30 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_paths_sorts_and_counts_paths() {
-        let entries = aggregate_paths(vec![
-            r"C:\b.log".to_string(),
-            r"C:\a.log".to_string(),
-            r"C:\b.log".to_string(),
-        ]);
+    fn file_handles_sort_by_path_and_handle_without_collapsing_duplicates() {
+        let entries = sort_file_handles(
+            vec![r"C:\b.log", r"C:\a.log", r"C:\b.log"]
+                .into_iter()
+                .enumerate()
+                .map(|(value, path)| {
+                    (
+                        path.to_string(),
+                        OpenFileHandle {
+                            value,
+                            access: Ok(1),
+                            mode: Ok(0),
+                        },
+                    )
+                })
+                .collect(),
+        );
 
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].path, r"C:\a.log");
-        assert_eq!(entries[0].handle_count, 1);
+        assert_eq!(entries[0].handle.value, 1);
         assert_eq!(entries[1].path, r"C:\b.log");
-        assert_eq!(entries[1].handle_count, 2);
+        assert_eq!(entries[1].handle.value, 0);
+        assert_eq!(entries[2].path, r"C:\b.log");
+        assert_eq!(entries[2].handle.value, 2);
     }
 }

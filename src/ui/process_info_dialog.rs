@@ -353,7 +353,7 @@ fn labeled_wrapped_lines(label: &str, value: &str, width: u16, theme: Theme) -> 
         .collect()
 }
 
-fn wrap_display_width(value: &str, max_width: usize) -> Vec<String> {
+pub(crate) fn wrap_display_width(value: &str, max_width: usize) -> Vec<String> {
     let max_width = max_width.max(1);
     if value.is_empty() {
         return vec![String::new()];
@@ -529,6 +529,7 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
         let copy_label = match app.process_info_tab {
             ProcessInfoTab::Dlls => "copy path",
             ProcessInfoTab::Environment => "copy variable",
+            ProcessInfoTab::Files => "copy row",
             _ => "copy",
         };
         vec![
@@ -555,12 +556,13 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
                 ("Esc/Enter", "close"),
             ],
             ProcessInfoTab::Files => vec![
-                ("↑/↓", "scroll"),
+                ("Enter", "details"),
                 ("Ctrl+U", "refresh"),
-                ("Ctrl+C", "copy paths"),
+                ("Ctrl+C", "copy rows"),
+                ("↑/↓", "select"),
                 ("Ctrl+←/→", "tabs"),
                 ("Tab", "next"),
-                ("Esc/Enter", "close"),
+                ("Esc", "close"),
             ],
             ProcessInfoTab::Dlls => vec![
                 ("Enter", "details"),

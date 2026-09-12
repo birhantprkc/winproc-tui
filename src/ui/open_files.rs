@@ -8,13 +8,55 @@ use ratatui::{
 use crate::{
     App,
     app::{AppActivity, ProcessInfoFocus},
+    model::open_files::FileAttribute,
     samplers::open_files::OpenFileEntry,
     ui::Theme,
 };
 
-const COUNT_COLUMN_WIDTH: usize = 5;
-const FILE_COLUMN_WIDTH: usize = 38;
-const DIRECTORY_COLUMN_WIDTH: usize = 92;
+const HANDLE_COLUMN_WIDTH: usize = 10;
+const ATTRIBUTE_COLUMNS: [(FileAttribute, usize); 4] = [
+    (FileAttribute::Cache, 6),
+    (FileAttribute::IoMode, 5),
+    (FileAttribute::Access, 6),
+    (FileAttribute::WriteThrough, 6),
+];
+
+pub(crate) fn selected_entry(app: &App) -> Option<&OpenFileEntry> {
+    filtered_entries(app).get(app.open_files_selected).copied()
+}
+
+pub(crate) fn entry_row_height(width: usize) -> usize {
+    if width < 72 {
+        // Reserve enough wrapped lines for the longest labels, including unavailable fields.
+        1 + "Cached: --  Async: --  Access: RWA  W-Thru: --"
+            .len()
+            .div_ceil(width.max(1))
+    } else {
+        1
+    }
+}
+
+pub(crate) fn entry_row_prefix(app: &App) -> usize {
+    let Some(report) = &app.open_files_result else {
+        return 0;
+    };
+    3 + usize::from(report.inaccessible_handles > 0)
+        + usize::from(report.unnamed_file_handles > 0)
+        + usize::from(report.entries.iter().any(OpenFileEntry::has_unknown))
+}
+
+pub(crate) fn index_at(area: Rect, app: &App, x: u16, y: u16) -> Option<usize> {
+    if app.open_files_show_detail
+        || !area.contains((x, y).into())
+        || x == area.right().saturating_sub(1)
+    {
+        return None;
+    }
+    let line = app.open_files_scroll.offset + usize::from(y - area.y);
+    let index = line.checked_sub(entry_row_prefix(app))?
+        / entry_row_height(area.width.saturating_sub(1) as usize);
+    (index < filtered_entries(app).len()).then_some(index)
+}
 
 pub(crate) fn draw_open_files_tab(
     frame: &mut ratatui::Frame<'_>,
@@ -22,7 +64,7 @@ pub(crate) fn draw_open_files_tab(
     app: &App,
     theme: Theme,
 ) {
-    let lines = open_files_lines(app, theme, area.width as usize);
+    let lines = open_files_lines(app, theme, area.width.saturating_sub(1) as usize);
     let line_count = lines.len();
     let rows = area.height.max(1) as usize;
     let offset = app
@@ -41,7 +83,9 @@ pub(crate) fn draw_open_files_tab(
 
 pub(crate) fn open_files_scrollbar_area(area: Rect, app: &App) -> Option<Rect> {
     let rows = app.open_files_scroll.page_size.max(1);
-    if open_files_total_rows(app) <= rows || area.is_empty() {
+    if open_files_lines(app, app.theme(), area.width.saturating_sub(1) as usize).len() <= rows
+        || area.is_empty()
+    {
         return None;
     }
     Some(Rect::new(
@@ -53,20 +97,10 @@ pub(crate) fn open_files_scrollbar_area(area: Rect, app: &App) -> Option<Rect> {
 }
 
 pub(crate) fn open_files_total_rows(app: &App) -> usize {
-    if app.activity() == AppActivity::LogView {
-        return 1;
-    }
-    match &app.open_files_result {
-        Some(report) => {
-            if report.error.is_some() {
-                return 1;
-            }
-            let diagnostics = usize::from(report.inaccessible_handles > 0)
-                + usize::from(report.unnamed_file_handles > 0);
-            3 + diagnostics + filtered_entries(app).len()
-        }
-        None => 1,
-    }
+    let width = super::process_info_content_area_for_screen(app.last_screen_area)
+        .width
+        .saturating_sub(1) as usize;
+    open_files_lines(app, app.theme(), width).len()
 }
 
 fn open_files_lines(app: &App, theme: Theme, width: usize) -> Vec<Line<'static>> {
@@ -99,10 +133,24 @@ fn open_files_lines(app: &App, theme: Theme, width: usize) -> Vec<Line<'static>>
         return lines;
     }
 
+    if app.open_files_show_detail {
+        if let Some(entry) = selected_entry(app) {
+            return entry
+                .detail_text()
+                .into_iter()
+                .flat_map(|line| {
+                    super::process_info_dialog::wrap_display_width(&line, width.max(1))
+                })
+                .map(Line::from)
+                .collect();
+        }
+        return vec![Line::from("File is no longer present in this capture.")];
+    }
+
     let entries = filtered_entries(app);
     let total_paths = report.entries.len();
     let path_count = if app.open_files_filter.is_empty() {
-        format!("paths {total_paths}")
+        format!("named handles {total_paths}")
     } else {
         format!("shown {}/{total_paths}", entries.len())
     };
@@ -149,6 +197,12 @@ fn open_files_lines(app: &App, theme: Theme, width: usize) -> Vec<Line<'static>>
             Style::default().fg(theme.warning),
         )));
     }
+    if report.entries.iter().any(OpenFileEntry::has_unknown) {
+        lines.push(Line::from(Span::styled(
+            "Some I/O attributes are unavailable; Enter shows details",
+            Style::default().fg(theme.warning),
+        )));
+    }
 
     if entries.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -160,9 +214,15 @@ fn open_files_lines(app: &App, theme: Theme, width: usize) -> Vec<Line<'static>>
             Style::default().fg(theme.muted),
         )));
     } else {
-        lines.push(open_files_table_header(theme));
-        for entry in entries {
-            lines.push(open_files_table_row(entry, theme));
+        lines.push(open_files_table_header(theme, width));
+        for (index, entry) in entries.into_iter().enumerate() {
+            lines.extend(open_files_table_rows(
+                entry,
+                theme,
+                width,
+                index == app.open_files_selected,
+                app.process_info_focus == ProcessInfoFocus::Content,
+            ));
         }
     }
     lines
@@ -174,7 +234,7 @@ fn set_open_files_filter_cursor(
     app: &App,
     line_count: usize,
 ) {
-    if app.process_info_focus != ProcessInfoFocus::Content {
+    if app.process_info_focus != ProcessInfoFocus::Content || app.open_files_show_detail {
         return;
     }
     let Some(report) = &app.open_files_result else {
@@ -217,7 +277,7 @@ fn render_open_files_scrollbar(
     let Some(scrollbar_area) = open_files_scrollbar_area(area, app) else {
         return;
     };
-    let total = open_files_total_rows(app);
+    let total = open_files_lines(app, theme, area.width.saturating_sub(1) as usize).len();
     let rows = app.open_files_scroll.page_size.max(1);
     let mut state = ScrollbarState::new(total)
         .position(open_files_scrollbar_position(
@@ -320,75 +380,152 @@ fn directory_name(path: &str) -> &str {
         .unwrap_or("")
 }
 
-fn open_files_table_header(theme: Theme) -> Line<'static> {
+fn column_widths(width: usize) -> (usize, usize) {
+    let attributes = if entry_row_height(width) == 1 {
+        ATTRIBUTE_COLUMNS.iter().map(|(_, size)| size + 1).sum()
+    } else {
+        0
+    };
+    let remaining = width.saturating_sub(HANDLE_COLUMN_WIDTH + 2 + attributes);
+    let file = (remaining / 2).max(8).min(remaining);
+    (file, remaining.saturating_sub(file))
+}
+
+fn open_files_table_header(theme: Theme, width: usize) -> Line<'static> {
     let header_style = Style::default()
         .fg(theme.accent)
         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
-    Line::from(vec![
-        Span::styled(fit_cell("Count", COUNT_COLUMN_WIDTH), header_style),
+    let (file, directory) = column_widths(width);
+    let mut spans = vec![
+        Span::styled(fit_cell("Handle", HANDLE_COLUMN_WIDTH), header_style),
         Span::raw(" "),
-        Span::styled(fit_cell("File", FILE_COLUMN_WIDTH), header_style),
-        Span::raw(" "),
-        Span::styled(fit_cell("Directory", DIRECTORY_COLUMN_WIDTH), header_style),
-    ])
+        Span::styled(fit_cell("File", file), header_style),
+    ];
+    if entry_row_height(width) == 1 {
+        for (attribute, size) in ATTRIBUTE_COLUMNS {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                fit_cell(attribute.label(), size),
+                header_style,
+            ));
+        }
+    }
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(fit_cell("Directory", directory), header_style));
+    Line::from(spans)
 }
 
-fn open_files_table_row(entry: &OpenFileEntry, theme: Theme) -> Line<'static> {
-    Line::from(vec![
+fn open_files_table_rows(
+    entry: &OpenFileEntry,
+    theme: Theme,
+    width: usize,
+    selected: bool,
+    focused: bool,
+) -> Vec<Line<'static>> {
+    let style = Style::default().fg(theme.text).bg(if selected {
+        if focused {
+            theme.focus_surface
+        } else {
+            theme.table_selection_surface
+        }
+    } else {
+        theme.panel_alt
+    });
+    let style = if selected {
+        style.add_modifier(Modifier::BOLD)
+    } else {
+        style
+    };
+    let (file, directory) = column_widths(width);
+    let mut spans = vec![
         Span::styled(
-            format!("{:>width$}", entry.handle_count, width = COUNT_COLUMN_WIDTH),
-            Style::default().fg(theme.accent),
+            fit_cell(&format!("0x{:X}", entry.handle.value), HANDLE_COLUMN_WIDTH),
+            style.fg(theme.accent),
         ),
         Span::raw(" "),
-        Span::styled(
-            fit_cell_start(file_name(&entry.path), FILE_COLUMN_WIDTH),
-            Style::default().fg(theme.text),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            fit_cell_start(directory_name(&entry.path), DIRECTORY_COLUMN_WIDTH),
-            Style::default().fg(theme.muted),
-        ),
-    ])
+        Span::styled(fit_cell_start(file_name(&entry.path), file), style),
+    ];
+    if entry_row_height(width) == 1 {
+        for (attribute, size) in ATTRIBUTE_COLUMNS {
+            spans.push(Span::styled(
+                format!(" {}", fit_cell(&entry.attribute(attribute), size)),
+                style,
+            ));
+        }
+    }
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        fit_cell_start(directory_name(&entry.path), directory),
+        style.fg(theme.muted),
+    ));
+    if entry_row_height(width) == 1 {
+        vec![Line::from(spans).style(style)]
+    } else {
+        let mut rows = vec![Line::from(spans).style(style)];
+        let compact = format!(
+            "Cached: {}  Async: {}  Access: {}  W-Thru: {}",
+            entry.attribute(FileAttribute::Cache),
+            entry.attribute(FileAttribute::IoMode),
+            entry.attribute(FileAttribute::Access),
+            entry.attribute(FileAttribute::WriteThrough)
+        );
+        rows.extend(
+            super::process_info_dialog::wrap_display_width(&compact, width.max(1))
+                .into_iter()
+                .map(|line| Line::from(Span::styled(line, style))),
+        );
+        rows.resize_with(entry_row_height(width), || {
+            Line::from(Span::styled("", style))
+        });
+        rows
+    }
 }
 
 fn fit_cell(value: &str, width: usize) -> String {
     let truncated = truncate_end(value, width);
-    format!("{truncated:<width$}")
+    let padding = width.saturating_sub(Span::raw(&truncated).width());
+    format!("{truncated}{}", " ".repeat(padding))
 }
 
 fn fit_cell_start(value: &str, width: usize) -> String {
     let truncated = truncate_path_start(value, width);
-    format!("{truncated:<width$}")
+    let padding = width.saturating_sub(Span::raw(&truncated).width());
+    format!("{truncated}{}", " ".repeat(padding))
 }
 
 fn truncate_end(value: &str, width: usize) -> String {
-    let char_count = value.chars().count();
-    if char_count <= width {
+    if Span::raw(value).width() <= width {
         return value.to_string();
     }
     if width <= 3 {
         return ".".repeat(width);
     }
+    let mut used = 0;
     let head = value
         .chars()
-        .take(width.saturating_sub(3))
+        .take_while(|ch| {
+            used += Span::raw(ch.to_string()).width();
+            used <= width - 3
+        })
         .collect::<String>();
     format!("{head}...")
 }
 
 fn truncate_path_start(path: &str, width: usize) -> String {
-    let char_count = path.chars().count();
-    if char_count <= width {
+    if Span::raw(path).width() <= width {
         return path.to_string();
     }
     if width <= 3 {
         return ".".repeat(width);
     }
+    let mut used = 0;
     let tail = path
         .chars()
         .rev()
-        .take(width.saturating_sub(3))
+        .take_while(|ch| {
+            used += Span::raw(ch.to_string()).width();
+            used <= width - 3
+        })
         .collect::<Vec<_>>()
         .into_iter()
         .rev()

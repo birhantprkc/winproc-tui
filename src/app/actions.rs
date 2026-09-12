@@ -354,6 +354,14 @@ impl App {
         }
 
         if self.show_process_info_dialog {
+            if self.process_info_tab == crate::app::ProcessInfoTab::Files
+                && self.process_info_focus == ProcessInfoFocus::Content
+                && !matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
+                && !(key.modifiers.contains(KeyModifiers::CONTROL)
+                    && matches!(key.code, KeyCode::Left | KeyCode::Right))
+            {
+                return self.on_open_files_key(key);
+            }
             if self.process_info_tab == crate::app::ProcessInfoTab::Network
                 && self.process_info_focus == ProcessInfoFocus::Content
                 && !matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
@@ -515,12 +523,6 @@ impl App {
                 KeyCode::PageDown => self.scroll_process_info_down(self.process_info_page_size()),
                 KeyCode::Home => self.scroll_process_info_home(),
                 KeyCode::End => self.scroll_process_info_end(),
-                KeyCode::Left if self.process_info_tab == crate::app::ProcessInfoTab::Files => {
-                    self.move_open_files_filter_cursor_left()
-                }
-                KeyCode::Right if self.process_info_tab == crate::app::ProcessInfoTab::Files => {
-                    self.move_open_files_filter_cursor_right()
-                }
                 KeyCode::Left
                     if self.process_info_tab == crate::app::ProcessInfoTab::Dlls
                         && !self.process_modules_show_detail =>
@@ -546,14 +548,6 @@ impl App {
                     self.move_process_environment_filter_cursor_right()
                 }
                 KeyCode::Backspace
-                    if self.process_info_tab == crate::app::ProcessInfoTab::Files =>
-                {
-                    self.pop_open_files_filter_char()
-                }
-                KeyCode::Delete if self.process_info_tab == crate::app::ProcessInfoTab::Files => {
-                    self.delete_open_files_filter_char()
-                }
-                KeyCode::Backspace
                     if self.process_info_tab == crate::app::ProcessInfoTab::Dlls
                         && !self.process_modules_show_detail =>
                 {
@@ -576,13 +570,6 @@ impl App {
                         && !self.process_environment_show_detail =>
                 {
                     self.delete_process_environment_filter_char()
-                }
-                KeyCode::Char(ch)
-                    if ch.eq_ignore_ascii_case(&'c')
-                        && key.modifiers.contains(KeyModifiers::CONTROL)
-                        && self.process_info_tab == crate::app::ProcessInfoTab::Files =>
-                {
-                    self.copy_open_files_to_clipboard()?;
                 }
                 KeyCode::Char(ch)
                     if ch.eq_ignore_ascii_case(&'c')
@@ -612,13 +599,6 @@ impl App {
                         crate::app::ProcessInfoTab::Metrics => {}
                         crate::app::ProcessInfoTab::Network => self.refresh_network(false),
                     }
-                }
-                KeyCode::Char(ch)
-                    if self.process_info_tab == crate::app::ProcessInfoTab::Files
-                        && !key.modifiers.contains(KeyModifiers::CONTROL)
-                        && !key.modifiers.contains(KeyModifiers::ALT) =>
-                {
-                    self.push_open_files_filter_char(ch);
                 }
                 KeyCode::Char(ch)
                     if self.process_info_tab == crate::app::ProcessInfoTab::Dlls
@@ -1659,6 +1639,10 @@ impl App {
                 && process_info_tab_at(screen_area, mouse.column, mouse.row).is_some();
             if self.process_info_tab == crate::app::ProcessInfoTab::Network && !tab_click {
                 self.on_network_mouse(mouse, false, screen_area);
+                return;
+            }
+            if self.process_info_tab == crate::app::ProcessInfoTab::Files && !tab_click {
+                self.on_open_files_mouse(mouse, screen_area);
                 return;
             }
             match mouse.kind {

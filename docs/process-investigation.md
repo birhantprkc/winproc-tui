@@ -35,6 +35,12 @@ Image collection may inspect loaded `coreclr.dll` or `clr.dll` to report the act
 
 Open Files lists disk files currently open by the fixed live process. It is not a general handle browser for pipes, sockets, registry keys, synchronization objects, or every Windows handle type.
 
+Each named file handle occupies its own entry, even when several handles refer to the same path. Cache configuration, write-through, synchronous/asynchronous-capable mode, and data access rights are shown independently for that handle. There is no path-level aggregation or `Mixed` value. Details retain the full path, original process handle value, raw access/mode masks, and per-field query failures.
+
+The collector duplicates each original handle with the same access rights and queries that duplicate; it never reopens a pathname to infer the original opening mode. Unavailable attributes do not hide an otherwise identified file handle or replace its other known attributes. These values describe the captured opening configuration, not cache hits or observed I/O completion behavior. They remain outside sampling, Recording, exports, and configuration. Log view never starts this collection.
+
+Files content accepts filter text directly. Selection and details operate on individual handles. Refresh retains selection by path and process-local handle value when present; that value can be reused after a close and is not a persistent identity across captures. A disappeared selected handle returns the view to the list. The list and detail view share responsive drawing and mouse geometry; details preserve complete values on narrow terminals. Clipboard output copies full handle rows for the filtered list, or the selected handle in details.
+
 DLL collection is an explicit point-in-time Toolhelp snapshot. File metadata failures remain per-row unavailable values rather than failing the whole list. Files and DLL filters search complete displayed paths, and explicit refresh must not queue redundant work for the same dialog session.
 
 Both collectors run outside the UI and sampling threads. Process identity is checked before results are accepted.

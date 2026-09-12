@@ -1183,6 +1183,8 @@ pub(crate) struct App {
     pub(crate) open_files_in_flight_generation: Option<u64>,
     pub(crate) open_files_filter: String,
     pub(crate) open_files_filter_cursor: usize,
+    pub(crate) open_files_selected: usize,
+    pub(crate) open_files_show_detail: bool,
     pub(crate) process_modules_result: Option<ProcessModulesReport>,
     pub(crate) process_modules_result_identity: Option<ProcessIdentity>,
     pub(crate) process_modules_error: Option<ProcessModulesError>,
@@ -1445,6 +1447,8 @@ impl App {
             open_files_in_flight_generation: None,
             open_files_filter: String::new(),
             open_files_filter_cursor: 0,
+            open_files_selected: 0,
+            open_files_show_detail: false,
             process_modules_result: None,
             process_modules_result_identity: None,
             process_modules_error: None,
@@ -4884,6 +4888,9 @@ impl App {
         let total = self.process_info_total_rows();
         self.active_process_info_scroll_mut()
             .set_page_size(page_size, total);
+        if self.process_info_tab == ProcessInfoTab::Files {
+            self.ensure_open_file_visible();
+        }
     }
 
     pub(crate) fn process_info_page_size(&self) -> usize {
@@ -4946,6 +4953,10 @@ impl App {
             return Ok(());
         }
         self.active_process_info_scroll_mut().stop_drag();
+        if self.open_files_show_detail {
+            self.open_files_show_detail = false;
+            self.ensure_open_file_visible();
+        }
         self.process_modules_show_detail = false;
         self.process_environment_show_detail = false;
         self.process_info_tab = tab;
@@ -5284,6 +5295,8 @@ impl App {
         self.process_info_dlls_scroll.reset();
         self.process_info_environment_scroll.reset();
         self.open_files_scroll.reset();
+        self.open_files_selected = 0;
+        self.open_files_show_detail = false;
         self.open_files_filter.clear();
         self.open_files_filter_cursor = 0;
         self.open_files_result = None;
@@ -5471,10 +5484,22 @@ impl App {
                 error.message()
             )
         } else {
-            format!("Loaded {entry_count} open file paths for {process_name}")
+            format!("Loaded {entry_count} named file handles for {process_name}")
         };
+        let selected_handle = crate::ui::open_files::selected_entry(self)
+            .map(|entry| (entry.path.clone(), entry.handle.value));
         self.open_files_result_identity = Some(result.identity);
         self.open_files_result = Some(result.report);
+        let entries = crate::ui::open_files::filtered_entries(self);
+        let retained = selected_handle.and_then(|(path, handle)| {
+            entries
+                .iter()
+                .position(|entry| entry.path == path && entry.handle.value == handle)
+        });
+        self.open_files_selected = retained.unwrap_or(0);
+        if retained.is_none() {
+            self.open_files_show_detail = false;
+        }
         self.open_files_scroll.set_page_size(
             self.open_files_scroll.page_size,
             self.open_files_total_rows(),
@@ -5483,6 +5508,7 @@ impl App {
     }
 
     pub(crate) fn push_open_files_filter_char(&mut self, ch: char) {
+        self.reset_open_file_selection();
         self.open_files_filter_cursor = self
             .open_files_filter_cursor
             .min(self.open_files_filter.len());
@@ -5497,6 +5523,7 @@ impl App {
     }
 
     pub(crate) fn pop_open_files_filter_char(&mut self) {
+        self.reset_open_file_selection();
         if self.open_files_filter_cursor > 0 {
             let previous = self.open_files_filter[..self.open_files_filter_cursor]
                 .char_indices()
@@ -5515,6 +5542,7 @@ impl App {
     }
 
     pub(crate) fn delete_open_files_filter_char(&mut self) {
+        self.reset_open_file_selection();
         if self.open_files_filter_cursor < self.open_files_filter.len() {
             let next = self.open_files_filter[self.open_files_filter_cursor..]
                 .chars()
@@ -5591,12 +5619,17 @@ impl App {
             ProcessInfoTab::Dlls => self.process_modules_show_detail,
             ProcessInfoTab::Environment => self.process_environment_show_detail,
             ProcessInfoTab::Network => self.process_network.detail,
-            ProcessInfoTab::Metrics | ProcessInfoTab::Image | ProcessInfoTab::Files => false,
+            ProcessInfoTab::Files => self.open_files_show_detail,
+            ProcessInfoTab::Metrics | ProcessInfoTab::Image => false,
         }
     }
 
     pub(crate) fn open_selected_process_info_detail(&mut self) -> bool {
         match self.process_info_tab {
+            ProcessInfoTab::Files if crate::ui::open_files::selected_entry(self).is_some() => {
+                self.open_files_show_detail = true;
+                self.open_files_scroll.scroll_home();
+            }
             ProcessInfoTab::Dlls if crate::ui::process_modules::selected_entry(self).is_some() => {
                 self.process_modules_show_detail = true;
                 self.process_info_dlls_scroll.scroll_home();
@@ -5618,6 +5651,11 @@ impl App {
 
     pub(crate) fn close_process_info_detail(&mut self) -> bool {
         match self.process_info_tab {
+            ProcessInfoTab::Files if self.open_files_show_detail => {
+                self.open_files_show_detail = false;
+                self.open_files_scroll.scroll_home();
+                self.ensure_open_file_visible();
+            }
             ProcessInfoTab::Network if self.process_network.detail => {
                 self.process_network.detail = false;
                 self.process_network.scroll.reset();

@@ -50,7 +50,11 @@ pub(in crate::tests) fn test_open_files_report(
         unnamed_file_handles: 0,
         entries: vec![OpenFileEntry {
             path: format!(r"C:\tmp\{file_name}"),
-            handle_count: 1,
+            handle: crate::model::open_files::OpenFileHandle {
+                value: 1,
+                access: Ok(1),
+                mode: Ok(0x20),
+            },
         }],
         error: None,
     }

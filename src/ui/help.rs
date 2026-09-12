@@ -180,6 +180,38 @@ const PROCESSES_ROWS: &[HelpItem] = &[
         key: "Ctrl+U",
         label: "Refresh Info tab",
     },
+    HelpItem {
+        key: "Type (Files)",
+        label: "Filter full paths; one row per handle",
+    },
+    HelpItem {
+        key: "↑/↓, PgUp/PgDn (Files)",
+        label: "Select handle; Home/End first/last",
+    },
+    HelpItem {
+        key: "←/→, Backspace/Delete (Files)",
+        label: "Move filter cursor / edit filter",
+    },
+    HelpItem {
+        key: "Enter (Files)",
+        label: "Full path, I/O attributes, raw masks",
+    },
+    HelpItem {
+        key: "Esc/Enter (file detail)",
+        label: "Return to handle list; Esc closes list",
+    },
+    HelpItem {
+        key: "Ctrl+C (Files)",
+        label: "Copy TSV rows; detail copies one handle",
+    },
+    HelpItem {
+        key: "Files: Y/N",
+        label: "Cached, Async, W-Thru; -- unavailable",
+    },
+    HelpItem {
+        key: "Files: Access",
+        label: "R read, W write, A append; - none; -- unknown",
+    },
 ];
 
 const RAM_VRAM_ROWS: &[HelpItem] = &[

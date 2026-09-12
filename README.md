@@ -101,7 +101,7 @@ The last working Tracking List and application-wide presentation preferences are
 - Understand a process's resource usage and identify opportunities to optimize it.
 - Check for memory, handle, and other resource leaks.
 - Compare `Private Bytes` with `Working Set - Private` to investigate whether a large allocated buffer may be going unused.
-- Review handle-count trends and the Files tab in Process Info to find files that may not have been closed.
+- Review handle-count trends and the Files tab in Process Info to find files that may not have been closed. Inspect each file handle's cache mode, write-through setting, I/O mode, and access rights.
 - Inspect the paths and versions of DLLs loaded by a process.
 - Compare resource usage before and after a specific operation or code change.
 - Record a target process and later inspect history around the time an issue occurred.
