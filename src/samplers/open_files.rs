@@ -5,10 +5,11 @@ use std::{
     ptr::{null_mut, read_unaligned},
     sync::mpsc::{self, Receiver, Sender, TryRecvError},
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, anyhow};
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use winapi::{
     shared::{
         minwindef::{DWORD, FALSE, LPVOID, ULONG},
@@ -112,6 +113,7 @@ pub(crate) struct OpenFilesResult {
     pub(crate) generation: u64,
     pub(crate) identity: ProcessIdentity,
     pub(crate) report: OpenFilesReport,
+    pub(crate) elapsed: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +144,7 @@ impl OpenFilesWorker {
                         identity,
                         process,
                     } => {
+                        let started = Instant::now();
                         let report = match verify_process_identity(&identity) {
                             Ok(()) => {
                                 let report = collect_open_files_for_process(&process);
@@ -161,6 +164,7 @@ impl OpenFilesWorker {
                                 generation,
                                 identity,
                                 report,
+                                elapsed: started.elapsed(),
                             })
                             .is_err()
                         {
@@ -215,7 +219,14 @@ impl OpenFilesWorker {
 }
 
 fn verify_process_identity(identity: &ProcessIdentity) -> std::result::Result<(), OpenFilesError> {
-    let system = System::new_all();
+    // A fresh target-only refresh still supplies name and creation time without collecting
+    // CPU, memory, environment, or executable metadata for every process on the host.
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[Pid::from_u32(identity.pid)]),
+        true,
+        ProcessRefreshKind::nothing(),
+    );
     let Some(process) = system.process(Pid::from_u32(identity.pid)) else {
         return Err(OpenFilesError::ProcessExited);
     };
@@ -534,6 +545,75 @@ impl Drop for OwnedHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_only_file_identity_check_rejects_another_name_or_lifetime() {
+        let system = System::new_all();
+        let pid = std::process::id();
+        let process = system.process(Pid::from_u32(pid)).unwrap();
+        let mut identity = ProcessIdentity {
+            pid,
+            name: process.name().to_string_lossy().into_owned(),
+            start_time: Some(process.start_time()),
+        };
+        assert_eq!(verify_process_identity(&identity), Ok(()));
+        identity.start_time = Some(process.start_time() + 1);
+        assert_eq!(
+            verify_process_identity(&identity),
+            Err(OpenFilesError::IdentityChanged)
+        );
+        identity.start_time = Some(process.start_time());
+        identity.name.push_str("-another-process");
+        assert_eq!(
+            verify_process_identity(&identity),
+            Err(OpenFilesError::IdentityChanged)
+        );
+        identity.pid = u32::MAX;
+        assert_eq!(
+            verify_process_identity(&identity),
+            Err(OpenFilesError::ProcessExited)
+        );
+    }
+
+    #[test]
+    #[ignore = "opt-in native Files timing probe; optional WINPROC_FILES_TIMING_PIDS comma-separated PIDs"]
+    fn open_files_collection_timings() {
+        use std::time::{Duration, Instant};
+        let system = System::new_all();
+        let mut pids = vec![std::process::id()];
+        if let Ok(extra) = std::env::var("WINPROC_FILES_TIMING_PIDS") {
+            pids.extend(extra.split(',').map(|pid| pid.parse::<u32>().unwrap()));
+        }
+        let worker = OpenFilesWorker::spawn();
+        for pid in pids {
+            let source = system.process(Pid::from_u32(pid)).expect("live probe PID");
+            let process = ProcessRow {
+                pid,
+                name: source.name().to_string_lossy().into_owned(),
+                start_time: Some(source.start_time()),
+                ..Default::default()
+            };
+            let identity = ProcessIdentity::from_row(&process);
+            for generation in 1..=3 {
+                let started = Instant::now();
+                worker
+                    .request_open_files(generation, identity.clone(), process.clone())
+                    .unwrap();
+                let result = worker
+                    .result_rx
+                    .recv_timeout(Duration::from_secs(30))
+                    .unwrap();
+                println!(
+                    "PID {pid}, request {generation}: {} ms, {} handles, {} named, error {:?}",
+                    started.elapsed().as_millis(),
+                    result.report.total_handles,
+                    result.report.entries.len(),
+                    result.report.error
+                );
+                assert!(result.report.error.is_none());
+            }
+        }
+    }
 
     #[test]
     fn file_attribute_queries_preserve_native_failure_codes() {

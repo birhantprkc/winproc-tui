@@ -1186,6 +1186,7 @@ pub(crate) struct App {
     pub(crate) open_files_result_identity: Option<ProcessIdentity>,
     pub(crate) open_files_in_flight: Option<ProcessIdentity>,
     pub(crate) open_files_in_flight_generation: Option<u64>,
+    pub(crate) open_files_refresh: super::open_files::OpenFilesRefresh,
     pub(crate) open_files_filter: String,
     pub(crate) open_files_filter_cursor: usize,
     pub(crate) open_files_selected: usize,
@@ -1454,6 +1455,7 @@ impl App {
             open_files_result_identity: None,
             open_files_in_flight: None,
             open_files_in_flight_generation: None,
+            open_files_refresh: super::open_files::OpenFilesRefresh::default(),
             open_files_filter: String::new(),
             open_files_filter_cursor: 0,
             open_files_selected: 0,
@@ -5333,6 +5335,7 @@ impl App {
         self.open_files_filter_cursor = 0;
         self.open_files_result = None;
         self.open_files_result_identity = None;
+        self.open_files_refresh = super::open_files::OpenFilesRefresh::default();
         self.open_files_in_flight = None;
         self.open_files_in_flight_generation = None;
         self.process_modules_result = None;
@@ -5374,6 +5377,7 @@ impl App {
     }
 
     pub(crate) fn close_process_info_dialog(&mut self) {
+        self.open_files_refresh = super::open_files::OpenFilesRefresh::default();
         self.process_info_verified_snapshot_at = None;
         self.process_network = super::network::NetworkView::default();
         self.show_process_info_dialog = false;
@@ -5407,7 +5411,7 @@ impl App {
             self.status = "Open files refresh already in progress".to_string();
             return Ok(());
         }
-        self.request_open_files_for_target(false, "Refreshing open files for")
+        self.request_open_files_for_target(false, Some("Refreshing open files for"))
     }
 
     fn ensure_open_files_for_target(&mut self) -> Result<()> {
@@ -5420,13 +5424,13 @@ impl App {
         {
             return Ok(());
         }
-        self.request_open_files_for_target(true, "Loading open files for")
+        self.request_open_files_for_target(true, Some("Loading open files for"))
     }
 
-    fn request_open_files_for_target(
+    pub(super) fn request_open_files_for_target(
         &mut self,
         clear_previous_result: bool,
-        status_prefix: &str,
+        status_prefix: Option<&str>,
     ) -> Result<()> {
         if self.activity() == AppActivity::LogView {
             self.status = "Open files are unavailable in Log view".to_string();
@@ -5463,7 +5467,11 @@ impl App {
         }
         self.open_files_in_flight = Some(identity);
         self.open_files_in_flight_generation = Some(self.process_info_generation);
-        self.status = format!("{status_prefix} {}", process.name);
+        self.open_files_refresh.next_due = None;
+        self.open_files_refresh.automatic = status_prefix.is_none();
+        if let Some(status_prefix) = status_prefix {
+            self.status = format!("{status_prefix} {}", process.name);
+        }
         Ok(())
     }
 
@@ -5484,6 +5492,8 @@ impl App {
                 Err(TryRecvError::Disconnected) => {
                     self.open_files_in_flight = None;
                     self.open_files_in_flight_generation = None;
+                    self.open_files_refresh.next_due = None;
+                    self.open_files_refresh.interval = None;
                     self.status = "Warning: open files worker stopped".to_string();
                     return Ok(true);
                 }
@@ -5511,14 +5521,19 @@ impl App {
         }
         let entry_count = result.report.entries.len();
         let process_name = result.report.process_name.clone();
-        self.status = if let Some(error) = &result.report.error {
-            format!(
+        if let Some(error) = &result.report.error {
+            self.status = format!(
                 "Open files unavailable for {process_name}: {}",
                 error.message()
-            )
-        } else {
-            format!("Loaded {entry_count} named file handles for {process_name}")
-        };
+            );
+        } else if !self.open_files_refresh.automatic {
+            self.status = format!("Loaded {entry_count} named file handles for {process_name}");
+        }
+        self.open_files_refresh.completed(
+            result.elapsed,
+            result.report.error.is_none(),
+            Instant::now(),
+        );
         let selected_handle = crate::ui::open_files::selected_entry(self)
             .map(|entry| (entry.path.clone(), entry.handle.value));
         self.open_files_result_identity = Some(result.identity);

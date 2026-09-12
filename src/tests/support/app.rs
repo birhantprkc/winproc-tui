@@ -248,6 +248,7 @@ pub(in crate::tests) fn make_test_app_with_workers(
         open_files_result_identity: None,
         open_files_in_flight: None,
         open_files_in_flight_generation: None,
+        open_files_refresh: app::open_files::OpenFilesRefresh::default(),
         open_files_filter: String::new(),
         open_files_filter_cursor: 0,
         open_files_selected: 0,

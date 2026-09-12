@@ -250,6 +250,7 @@ fn open_file_modes_refresh_retains_the_selected_handle_among_duplicate_paths() {
     ];
     results
         .send(OpenFilesResult {
+            elapsed: std::time::Duration::from_millis(30),
             generation,
             identity: identity.clone(),
             report: report.clone(),
@@ -264,6 +265,7 @@ fn open_file_modes_refresh_retains_the_selected_handle_among_duplicate_paths() {
     report.entries.remove(0);
     results
         .send(OpenFilesResult {
+            elapsed: std::time::Duration::from_millis(30),
             generation,
             identity: identity.clone(),
             report: report.clone(),
@@ -281,6 +283,7 @@ fn open_file_modes_refresh_retains_the_selected_handle_among_duplicate_paths() {
     report.entries[0].handle.value = 0x48;
     results
         .send(OpenFilesResult {
+            elapsed: std::time::Duration::from_millis(30),
             generation,
             identity,
             report,
@@ -577,6 +580,7 @@ fn open_files_result_updates_modal_state() {
 
     result_tx
         .send(OpenFilesResult {
+            elapsed: std::time::Duration::from_millis(30),
             generation,
             identity: identity.clone(),
             report: OpenFilesReport {
@@ -1055,6 +1059,7 @@ fn stale_open_files_result_cannot_replace_reopened_dialog_request() {
 
     result_tx
         .send(OpenFilesResult {
+            elapsed: std::time::Duration::from_millis(30),
             generation: old_generation,
             identity: identity.clone(),
             report: test_open_files_report(&identity.name, identity.pid, "old.log"),
@@ -1063,9 +1068,11 @@ fn stale_open_files_result_cannot_replace_reopened_dialog_request() {
     assert!(!app.poll_open_files_results().unwrap());
     assert_eq!(app.open_files_in_flight_generation, Some(new_generation));
     assert!(app.open_files_result.is_none());
+    assert!(app.open_files_refresh.next_due.is_none());
 
     result_tx
         .send(OpenFilesResult {
+            elapsed: std::time::Duration::from_millis(30),
             generation: new_generation,
             identity: identity.clone(),
             report: test_open_files_report(&identity.name, identity.pid, "new.log"),

@@ -22,7 +22,7 @@ All live collectors verify that the process still has the expected identity. A P
 |---|---|
 | Metrics | Uses the fixed process identity and its Live, paused, or loaded history. |
 | Image | Starts background static-process collection after the target is stable; recorded row data is available as a fallback. |
-| Files | Explicitly enumerates open disk files on an independent worker. |
+| Files | Enumerates open disk files on an independent worker on first activation, then refreshes while the tab is visible when collection is inexpensive. |
 | DLLs | Takes an explicit module and file-metadata snapshot on its own worker. |
 | Environment | Reads the live target's remote environment block on an independent worker and clears values when the dialog closes. |
 | Network | Captures TCP/UDP endpoints for the fixed live process through the shared Network worker on first activation or explicit refresh. |
@@ -43,7 +43,11 @@ Files content accepts filter text directly. Selection and details operate on ind
 
 DLL collection is an explicit point-in-time Toolhelp snapshot. File metadata failures remain per-row unavailable values rather than failing the whole list. Files and DLL filters search complete displayed paths, and explicit refresh must not queue redundant work for the same dialog session.
 
-Both collectors run outside the UI and sampling threads. Process identity is checked before results are accepted.
+Files schedules its next automatic refresh after the previous result completes. The idle interval is at least two seconds and at least ten times the measured collection duration, rounded up to whole seconds. Collection duration includes both identity checks and handle/attribute enumeration. A request taking more than one second, or a failed request, stops automatic refresh; an inexpensive successful manual refresh resumes it. The tab shows the interval and last collection duration, or why automatic refresh stopped. No collection is added to normal sampling.
+
+Only the active Files tab schedules automatic requests. Switching tabs, closing Process Info, entering Log view, or losing the fixed live process stops scheduling. An in-flight request can finish, but closed or replaced sessions reject its result. There is no catch-up queue after returning to Files. Filters and selected handles survive automatic refresh under the same rules as manual refresh. Automatic requests do not repeatedly overwrite unrelated status messages. Global Find file users searches remain explicit.
+
+Both collectors run outside the UI and sampling threads. Process identity is checked before results are accepted. Files checks only the target process's name and creation time before and after capture, without collecting unrelated host metrics or process metadata. This refresh policy controls request frequency, not the duration of a native filesystem call already in progress.
 
 ## Find File Users
 

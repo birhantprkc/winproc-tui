@@ -227,6 +227,8 @@ In `DISPLAY PAUSED`, both the current Snapshot and history come from the paused 
 The Process Info `Files` tab displays one entry per named disk-file handle of the fixed live process. Repeated paths remain separate entries, sorted by path and original process handle value.
 This is a supporting investigation tool after an increase in `Hndl` has been found, not a metric that is sampled continuously.
 
+The visible Files tab refreshes automatically when collection is inexpensive; slow or failed captures suspend automatic refresh until a successful manual retry. The displayed duration measures the worker's complete request, including identity checks and file attributes, rather than disk I/O latency. The interval is idle time after completion, not a fixed sampling cadence. Scheduling rules belong to [Process Investigation](process-investigation.md#open-files-and-dlls); neither the captures nor their timings enter Recording.
+
 Sources are `NtQuerySystemInformation(SystemExtendedHandleInformation)`, `DuplicateHandle`, `GetFileType(FILE_TYPE_DISK)`, and `GetFinalPathNameByHandleW`.
 On the same duplicated handle, `NtQueryInformationFile` queries `FileAccessInformation` and `FileModeInformation` independently. This avoids reopening the file or using access rights from an earlier handle-table entry that may have been reused. Each query failure leaves that field `--`; details show its NTSTATUS or incomplete-reply diagnostic. Duplication uses `DUPLICATE_SAME_ACCESS` and never changes the target's opening mode.
 The app displays what can be collected with normal user permissions. Permission failures and handles that cannot be duplicated are treated as uncollected counts or `<access denied>`.

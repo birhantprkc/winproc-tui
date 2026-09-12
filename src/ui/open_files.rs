@@ -123,7 +123,7 @@ fn open_files_lines(app: &App, theme: Theme, width: usize) -> Vec<Line<'static>>
     if let Some(error) = &report.error {
         lines.push(Line::from(Span::styled(
             format!(
-                "{} ({} / PID {})",
+                "{} ({} / PID {}) · Auto off; Ctrl+U retry",
                 error.message(),
                 report.process_name,
                 report.pid
@@ -156,14 +156,8 @@ fn open_files_lines(app: &App, theme: Theme, width: usize) -> Vec<Line<'static>>
     };
     lines.push(Line::from(Span::styled(
         format!(
-            "{} / PID {}{}  handles {}  file handles {}  {}{}",
-            report.process_name,
-            report.pid,
-            if app.process_info_target_is_currently_live() {
-                ""
-            } else {
-                " · process exited"
-            },
+            "{}  handles {}  file handles {}  {}{}",
+            app.open_files_refresh_label(),
             report.total_handles,
             report.file_handles,
             path_count,

@@ -10,6 +10,7 @@ mod log_view;
 mod main_menu;
 mod network;
 mod open_files;
+mod open_files_auto_refresh;
 mod performance;
 mod process_environment;
 mod process_info;

@@ -114,6 +114,7 @@ pub(crate) fn run_tui(
         dirty |= app.poll_file_users_results();
         dirty |= app.poll_log_workers();
         dirty |= app.request_due_process_info()?;
+        dirty |= app.request_due_open_files_at(Instant::now())?;
         let sample_freshness = app.sample_freshness();
         if sample_freshness != last_sample_freshness {
             last_sample_freshness = sample_freshness;

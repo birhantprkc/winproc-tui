@@ -243,6 +243,10 @@ const PROCESSES_ROWS: &[HelpItem] = &[
         key: "Files: Access",
         label: "R read, W write, A append; - none; -- unknown",
     },
+    HelpItem {
+        key: "Files: Auto",
+        label: "2–10s while visible; >1s/error stops; Ctrl+U retry",
+    },
 ];
 
 const RAM_VRAM_ROWS: &[HelpItem] = &[

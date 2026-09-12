@@ -557,7 +557,7 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
             ],
             ProcessInfoTab::Files => vec![
                 ("Enter", "details"),
-                ("Ctrl+U", "refresh"),
+                ("Ctrl+U", "refresh now"),
                 ("Ctrl+C", "copy rows"),
                 ("↑/↓", "select"),
                 ("Ctrl+←/→", "tabs"),

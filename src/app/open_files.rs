@@ -1,11 +1,65 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use std::time::{Duration, Instant};
 
 use super::{App, AppActivity, ProcessInfoFocus};
 use crate::ui::open_files;
 
+#[derive(Default)]
+pub(crate) struct OpenFilesRefresh {
+    pub(crate) next_due: Option<Instant>,
+    pub(crate) interval: Option<Duration>,
+    pub(crate) elapsed: Option<Duration>,
+    pub(crate) automatic: bool,
+}
+
+impl OpenFilesRefresh {
+    pub(crate) fn completed(&mut self, elapsed: Duration, success: bool, now: Instant) {
+        self.elapsed = Some(elapsed);
+        // Leave at least ten times the collection cost idle. Expensive or failed collections
+        // require a manual retry; a successful, inexpensive retry resumes automatic refresh.
+        self.interval = (success && elapsed <= Duration::from_secs(1)).then(|| {
+            Duration::from_secs((elapsed.as_nanos() * 10).div_ceil(1_000_000_000).max(2) as u64)
+        });
+        self.next_due = self.interval.map(|interval| now + interval);
+    }
+}
+
 impl App {
+    pub(crate) fn request_due_open_files_at(&mut self, now: Instant) -> Result<bool> {
+        if !self.show_process_info_dialog
+            || self.process_info_tab != super::ProcessInfoTab::Files
+            || self.activity() == AppActivity::LogView
+            || self.open_files_in_flight.is_some()
+            || self.open_files_refresh.next_due.is_none_or(|due| now < due)
+            || !self.process_info_target_is_currently_live()
+        {
+            return Ok(false);
+        }
+        self.request_open_files_for_target(false, None)?;
+        Ok(true)
+    }
+
+    pub(crate) fn open_files_refresh_label(&self) -> String {
+        if !self.process_info_target_is_currently_live() {
+            return "Process exited".to_string();
+        }
+        match (
+            self.open_files_refresh.interval,
+            self.open_files_refresh.elapsed,
+        ) {
+            (Some(interval), Some(elapsed)) => {
+                format!("Auto {}s · {} ms", interval.as_secs(), elapsed.as_millis())
+            }
+            (None, Some(elapsed)) if elapsed > Duration::from_secs(1) => {
+                format!("Auto off (slow: {} ms)", elapsed.as_millis())
+            }
+            (None, Some(_)) => "Auto off (error)".to_string(),
+            _ => "Loading...".to_string(),
+        }
+    }
+
     pub(crate) fn reset_open_file_selection(&mut self) {
         self.open_files_selected = 0;
         self.open_files_show_detail = false;
