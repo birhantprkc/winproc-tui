@@ -45,6 +45,20 @@ DLL collection is an explicit point-in-time Toolhelp snapshot. File metadata fai
 
 Both collectors run outside the UI and sampling threads. Process identity is checked before results are accepted.
 
+## Find File Users
+
+Find file users searches disk-file handles across the host, independently of the Processes filter, selection, and Tracked-only setting. Opening the browser or editing the query performs no scan. Only an explicit search or repeat starts collection. Live, display pause, and Recording allow this investigation; Log view does not.
+
+Each capture acquires the system handle table once and shares handle duplication and path-resolution primitives with Files. Source process handles are acquired before the table and their native creation times are checked before and after inspection. Results group duplicate handles by captured process lifetime and matched path, showing a handle count without combining I/O attributes.
+
+Potentially blocking native calls run in a hidden helper process belonging to a job with kill-on-close and a memory limit. A controller thread reads bounded progress messages and publishes only its latest cumulative result. Cancellation, inactivity, overall deadlines, and result limits terminate the scan while retaining confirmed matches. Shutdown requests helper termination and uses a bounded wait. If Windows has not completed termination, the result explicitly reports pending cleanup; a faulty filesystem driver can delay kernel cleanup beyond application control. The helper never terminates investigated processes.
+
+Results distinguish completed, cancelled, timed-out, limited, and failed captures. Process-level access failures and exits, handle-level failures, unnamed disk-file handles, and unvisited handles have separate counts. A zero-result capture says no matches were found in the inspected scope, without claiming a file has no users or that a matching handle necessarily prevents deletion. Details retain full paths and coverage information when the table is clipped.
+
+Navigating reopens and verifies the owner's native creation time in the helper before opening its Files tab. Closing Process Info returns to retained search results. Request IDs reject replies after cancellation, a new search, or a closed browser. Query drafts and the query associated with captured results remain distinct. Queries, results, and helper protocol data are not saved to configuration, sampling history, Recording, or exports.
+
+Matching semantics, limits, and clipboard fields are owned by [metrics.md](metrics.md). Memory-mapped-only file use, hard links, short names, reparse aliases, and uninspectable processes are outside an exhaustive ownership guarantee.
+
 ## Environment
 
 Environment is a best-effort Windows 11 x64 investigation action. The worker handles native x64 and WOW64 pointer widths, validates remote-memory regions, enforces a 4 MiB limit, and requires valid terminated UTF-16 data.

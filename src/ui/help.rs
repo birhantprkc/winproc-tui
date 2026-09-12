@@ -36,6 +36,37 @@ struct HelpSection {
     rows: &'static [HelpItem],
 }
 
+const FILE_USERS_ROWS: &[HelpItem] = &[
+    HelpItem {
+        key: "Menu: Investigate",
+        label: "Network endpoints / Find file users (Live/REC)",
+    },
+    HelpItem {
+        key: "Find file users: Tab/Shift+Tab",
+        label: "Focus Query, Mode, or Results",
+    },
+    HelpItem {
+        key: "Enter / Ctrl+U (file search)",
+        label: "Search from Query / repeat search",
+    },
+    HelpItem {
+        key: "←/→, Space/Enter (Mode)",
+        label: "Filename / path substring / exact path",
+    },
+    HelpItem {
+        key: "Enter / Space (file results)",
+        label: "Verified owner's Files / full path and coverage",
+    },
+    HelpItem {
+        key: "Esc (file search)",
+        label: "Cancel running scan; otherwise back/close",
+    },
+    HelpItem {
+        key: "↑/↓, PgUp/PgDn, Home/End",
+        label: "Navigate file results/details; Ctrl+C copies row",
+    },
+];
+
 const GLOBAL_ROWS: &[HelpItem] = &[
     HelpItem {
         key: "q",
@@ -572,6 +603,11 @@ const LEFT_SECTIONS: &[HelpSection] = &[
         title: "Network endpoints",
         focus_hint: Some("on demand"),
         rows: NETWORK_ROWS,
+    },
+    HelpSection {
+        title: "Find file users",
+        focus_hint: Some("on demand"),
+        rows: FILE_USERS_ROWS,
     },
 ];
 

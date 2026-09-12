@@ -252,6 +252,18 @@ It does not show a true file-open timestamp because the stable file metadata tim
 When copying to the clipboard, use raw text without a header.
 Each TSV row contains the full path, original handle in hexadecimal, Cached, Async, Access, W-Thru, raw access mask, and raw mode flags, in that order. Attribute values use the same compact notation as the table. Query failures retain their diagnostic in the raw-field column. The list copies all filtered handle rows; details copy only the selected handle. These attributes are not recorded and do not alter recording schemas.
 
+## File User Search
+
+Find file users captures open disk-file handles on an explicit search. It obtains `SystemExtendedHandleInformation` once per scan, duplicates handles from held source process lifetimes, checks `GetFileType(FILE_TYPE_DISK)`, and resolves paths with `GetFinalPathNameByHandleW`. This is a capture interval, not an atomic filesystem snapshot. Multiple handles from one process lifetime to the same returned path produce one result with a handle count. Native creation times verify process ownership and subsequent navigation.
+
+Matching is case-insensitive text matching with Unicode lowercase conversion and `/` normalized to `\`. Extended `\\?\` and `\\?\UNC\` path prefixes are normalized to drive and UNC paths. Filename mode searches only the last path component; path mode searches the whole returned path. Exact mode requires an absolute drive or UNC path and additionally normalizes redundant separators and lexical `.`/`..` components without traversing above a drive or share root. It does not resolve symlinks, hard links, short filenames, device-path aliases, or filesystem-specific case-sensitive identity. Query input is limited to 4,096 UTF-16 units.
+
+Coverage counts use explicit units: processes in the table, inspected processes, access-denied processes, exited processes, otherwise unavailable/unverified processes; total handles, attempted handle inspections, unreadable handles, unnamed disk-file handles, skipped handles belonging to unavailable processes, and handles not reached. Unreadable handles may include non-file objects whose type could not be determined. Successful inspection is limited to named disk-file handles and excludes memory-mapped-only use. Partial zero results are not evidence that a file is unused.
+
+Limits are 30 seconds overall, 5 seconds without progress, 500,000 attempted handle inspections, 5,000 result rows or 8 MiB of retained result strings/row overhead, a 256 MiB system-table buffer, 1 MiB per protocol message, and 512 MiB of helper committed memory. Process termination confirmation waits at most one second; delayed kernel cleanup remains explicit. Limits and cancellation preserve matches whose process lifetime was verified after inspection; an interrupted process may have additional unreported matches.
+
+Clipboard output is one raw TSV row with full matched path, PID, process name, and handle count, without a header. Search data is neither a sampled metric nor recorded/exported data. Native tests exercise duplicate handles and long Unicode paths on local NTFS. UNC normalization is tested as text; SMB, cloud placeholders, other filesystems, and stalled filesystem drivers are not covered by that native fixture. Cancellation tests use deliberately stalled helpers rather than claiming compatibility with every driver.
+
 ## Network Endpoints
 
 The global Network browser and Process Info `Network` tab show on-demand endpoint reports, separate from throughput metrics. Sources are `GetExtendedTcpTable(TCP_TABLE_OWNER_PID_ALL)` and `GetExtendedUdpTable(UDP_TABLE_OWNER_PID)` for both `AF_INET` and `AF_INET6`.

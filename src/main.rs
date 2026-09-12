@@ -27,7 +27,10 @@ use config::{
 };
 
 fn main() -> Result<()> {
-    Cli::parse();
+    let cli = Cli::parse();
+    if let Some(request) = cli.file_users_helper {
+        return samplers::file_users_scan::run_helper(&request);
+    }
     let _single_instance = platform::acquire_single_instance()
         .context("failed to check for another winproc-tui instance")?
         .ok_or_else(|| anyhow::anyhow!("winproc-tui is already running"))?;

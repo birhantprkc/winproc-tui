@@ -624,6 +624,9 @@ impl App {
         if self.network_browser.visible {
             return self.on_network_key(key, true);
         }
+        if self.file_users.visible {
+            return self.on_file_users_key(key);
+        }
 
         if self.show_cpu_core_dialog {
             match key.code {
@@ -1757,6 +1760,10 @@ impl App {
 
         if self.network_browser.visible {
             self.on_network_mouse(mouse, true, screen_area);
+            return;
+        }
+        if self.file_users.visible {
+            self.on_file_users_mouse(mouse, screen_area);
             return;
         }
 

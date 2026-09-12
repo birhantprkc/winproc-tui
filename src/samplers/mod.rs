@@ -347,3 +347,5 @@ fn collect_snapshot(
         warning: mapped_counters.warning,
     }
 }
+pub(crate) mod file_users;
+pub(crate) mod file_users_scan;

@@ -321,8 +321,9 @@ pub(crate) fn collect_open_files_for_process(process: &ProcessRow) -> OpenFilesR
 }
 
 #[derive(Debug, Clone, Copy)]
-struct HandleEntry {
-    handle_value: usize,
+pub(super) struct HandleEntry {
+    pub(super) pid: u32,
+    pub(super) handle_value: usize,
 }
 
 #[repr(C)]
@@ -339,6 +340,13 @@ struct SystemHandleTableEntryInfoEx {
 }
 
 fn query_system_handles_for_pid(pid: u32) -> Result<Vec<HandleEntry>> {
+    Ok(query_system_handles()?
+        .into_iter()
+        .filter(|entry| entry.pid == pid)
+        .collect())
+}
+
+pub(super) fn query_system_handles() -> Result<Vec<HandleEntry>> {
     let mut buffer_len = INITIAL_HANDLE_BUFFER_BYTES;
     loop {
         let mut buffer = vec![0u8; buffer_len];
@@ -356,7 +364,7 @@ fn query_system_handles_for_pid(pid: u32) -> Result<Vec<HandleEntry>> {
         };
 
         if nt_success(status) {
-            return parse_handle_buffer(&buffer, pid);
+            return parse_handle_buffer(&buffer);
         }
 
         if matches!(
@@ -382,7 +390,7 @@ fn nt_success(status: i32) -> bool {
     status >= 0
 }
 
-fn parse_handle_buffer(buffer: &[u8], pid: u32) -> Result<Vec<HandleEntry>> {
+fn parse_handle_buffer(buffer: &[u8]) -> Result<Vec<HandleEntry>> {
     let pointer_size = size_of::<usize>();
     if buffer.len() < pointer_size * 2 {
         return Err(anyhow!("short handle table header"));
@@ -398,7 +406,6 @@ fn parse_handle_buffer(buffer: &[u8], pid: u32) -> Result<Vec<HandleEntry>> {
         return Err(anyhow!("short handle table body"));
     }
 
-    let target_pid = pid as usize;
     let mut entries = Vec::new();
     for index in 0..handle_count {
         let offset = entry_offset + index * entry_size;
@@ -407,8 +414,9 @@ fn parse_handle_buffer(buffer: &[u8], pid: u32) -> Result<Vec<HandleEntry>> {
         let entry = unsafe {
             read_unaligned(buffer.as_ptr().add(offset) as *const SystemHandleTableEntryInfoEx)
         };
-        if entry.unique_process_id == target_pid {
+        if let Ok(pid) = u32::try_from(entry.unique_process_id) {
             entries.push(HandleEntry {
+                pid,
                 handle_value: entry.handle_value,
             });
         }
@@ -416,7 +424,10 @@ fn parse_handle_buffer(buffer: &[u8], pid: u32) -> Result<Vec<HandleEntry>> {
     Ok(entries)
 }
 
-fn duplicate_process_handle(source_process: HANDLE, handle_value: usize) -> Option<OwnedHandle> {
+pub(super) fn duplicate_process_handle(
+    source_process: HANDLE,
+    handle_value: usize,
+) -> Option<OwnedHandle> {
     let mut duplicated: HANDLE = null_mut();
     // SAFETY: `source_process` is a live process handle with duplication access, the remote handle
     // value is passed opaquely for Windows to validate, the target is the current-process pseudo
@@ -439,7 +450,7 @@ fn duplicate_process_handle(source_process: HANDLE, handle_value: usize) -> Opti
     }
 }
 
-fn final_path_for_handle(handle: HANDLE) -> Option<String> {
+pub(super) fn final_path_for_handle(handle: HANDLE) -> Option<String> {
     let mut buffer = vec![0u16; 32_768];
     // SAFETY: `handle` is live, and `buffer` is a writable UTF-16 allocation whose length fits
     // `DWORD`; the returned length is checked before slicing.
@@ -450,16 +461,9 @@ fn final_path_for_handle(handle: HANDLE) -> Option<String> {
     }
     let len = len as usize;
     if len >= buffer.len() {
-        buffer.resize(len + 1, 0);
-        // SAFETY: the resized UTF-16 allocation is live and writable and its checked capacity is
-        // passed to Windows; the second returned length is validated before slicing.
-        let len = unsafe {
-            GetFinalPathNameByHandleW(handle, buffer.as_mut_ptr(), buffer.len() as DWORD, 0)
-        };
-        if len == 0 || len as usize >= buffer.len() {
-            return None;
-        }
-        return Some(normalize_final_path(&buffer[..len as usize]));
+        // The initial buffer already covers the extended Windows path limit. Do not allocate
+        // an unbounded buffer from a length returned by an unsupported filesystem/filter.
+        return None;
     }
     Some(normalize_final_path(&buffer[..len]))
 }
@@ -515,7 +519,7 @@ fn sort_file_handles(paths: Vec<(String, OpenFileHandle)>) -> Vec<OpenFileEntry>
     entries
 }
 
-struct OwnedHandle(HANDLE);
+pub(super) struct OwnedHandle(pub(super) HANDLE);
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {

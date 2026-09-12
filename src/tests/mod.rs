@@ -1,5 +1,6 @@
 mod configuration;
 mod cpu_panel;
+mod file_users;
 mod graph_interaction;
 mod graph_rendering;
 mod graph_state;

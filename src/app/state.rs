@@ -946,7 +946,7 @@ impl MainMenuSection {
             (Self::View, AppActivity::Live | AppActivity::Recording) => LIVE_VIEW_MAIN_MENU_ACTIONS,
             (Self::View, AppActivity::LogView) => LOG_VIEW_VIEW_MAIN_MENU_ACTIONS,
             (Self::Investigate, AppActivity::Live | AppActivity::Recording) => {
-                &[MainMenuAction::OpenNetwork]
+                &[MainMenuAction::OpenNetwork, MainMenuAction::FindFileUsers]
             }
             (Self::Investigate, AppActivity::LogView) => &[],
             (Self::Log, AppActivity::Live) => LIVE_LOG_MAIN_MENU_ACTIONS,
@@ -960,6 +960,7 @@ impl MainMenuSection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MainMenuAction {
     OpenNetwork,
+    FindFileUsers,
     OpenProfiles,
     SaveProfile,
     SaveProfileAs,
@@ -980,6 +981,7 @@ impl MainMenuAction {
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::OpenNetwork => "Network endpoints",
+            Self::FindFileUsers => "Find file users",
             Self::OpenProfiles => "Open",
             Self::SaveProfile => "Save",
             Self::SaveProfileAs => "Save As",
@@ -1112,6 +1114,9 @@ pub(crate) struct App {
     pub(crate) network_browser: super::network::NetworkView,
     pub(crate) process_network: super::network::NetworkView,
     pub(crate) network_next_id: u64,
+    pub(crate) file_users_worker: crate::samplers::file_users::FileUsersWorker,
+    pub(crate) file_users: super::file_users::FileUsersView,
+    pub(crate) file_users_next_id: u64,
     pub(crate) sampling_in_progress: bool,
     pub(crate) snapshot: Snapshot,
     pub(crate) system_info_host: SystemInfoHost,
@@ -1215,6 +1220,7 @@ pub(crate) struct App {
     pub(crate) process_info_dlls_scroll: ScrollableModalState,
     pub(crate) process_info_environment_scroll: ScrollableModalState,
     pub(crate) process_info_target: Option<ProcessInfoDialogTarget>,
+    pub(crate) process_info_verified_snapshot_at: Option<DateTime<Local>>,
     pub(crate) process_info_generation: u64,
     pub(crate) show_cpu_core_dialog: bool,
     pub(crate) cpu_core_scroll: ScrollableModalState,
@@ -1365,6 +1371,9 @@ impl App {
             network_browser: super::network::NetworkView::default(),
             process_network: super::network::NetworkView::default(),
             network_next_id: 0,
+            file_users_worker: crate::samplers::file_users::FileUsersWorker::spawn(),
+            file_users: super::file_users::FileUsersView::default(),
+            file_users_next_id: 0,
             sampling_in_progress: false,
             snapshot: initial.snapshot,
             system_info_host: SystemInfoHost::collect(),
@@ -1491,6 +1500,7 @@ impl App {
                 ..ScrollableModalState::default()
             },
             process_info_target: None,
+            process_info_verified_snapshot_at: None,
             process_info_generation: 0,
             show_cpu_core_dialog: false,
             cpu_core_scroll: ScrollableModalState {
@@ -1699,6 +1709,7 @@ impl App {
             || self.show_log_dir_dialog
             || self.show_process_info_dialog
             || self.network_browser.visible
+            || self.file_users.visible
             || self.show_cpu_core_dialog
             || self.show_system_info_dialog
             || self.graph_reorder_dialog.is_some()
@@ -4816,11 +4827,12 @@ impl App {
             return false;
         };
         matches!(target.lifecycle, ProcessLifecycle::Live)
-            && self
-                .snapshot
-                .processes
-                .iter()
-                .any(|process| ProcessIdentity::from_row(process) == target.identity)
+            && (self.process_info_verified_snapshot_at == Some(self.snapshot.captured_at)
+                || self
+                    .snapshot
+                    .processes
+                    .iter()
+                    .any(|process| ProcessIdentity::from_row(process) == target.identity))
     }
 
     pub(crate) fn process_info_metrics_view(&self) -> Option<ProcessInfoMetricsView> {
@@ -5283,6 +5295,26 @@ impl App {
         target: ProcessInfoDialogTarget,
         initial_tab: ProcessInfoTab,
     ) -> Result<()> {
+        self.open_process_info_dialog_with_verification(target, initial_tab, false)
+    }
+
+    pub(super) fn open_verified_process_info_dialog(
+        &mut self,
+        target: ProcessInfoDialogTarget,
+        initial_tab: ProcessInfoTab,
+    ) -> Result<()> {
+        self.open_process_info_dialog_with_verification(target, initial_tab, true)
+    }
+
+    fn open_process_info_dialog_with_verification(
+        &mut self,
+        target: ProcessInfoDialogTarget,
+        initial_tab: ProcessInfoTab,
+        verified: bool,
+    ) -> Result<()> {
+        // A just-verified owner may have started after the latest sample. This allowance expires
+        // with the next snapshot; collectors still verify their fixed target independently.
+        self.process_info_verified_snapshot_at = verified.then_some(self.snapshot.captured_at);
         let process_name = target.process.name.clone();
         self.process_info_generation = self.process_info_generation.wrapping_add(1).max(1);
         self.process_info_target = Some(target);
@@ -5342,6 +5374,7 @@ impl App {
     }
 
     pub(crate) fn close_process_info_dialog(&mut self) {
+        self.process_info_verified_snapshot_at = None;
         self.process_network = super::network::NetworkView::default();
         self.show_process_info_dialog = false;
         self.process_info_target = None;
@@ -6523,6 +6556,10 @@ impl App {
 
         self.dismiss_main_menu();
         match action {
+            MainMenuAction::FindFileUsers => {
+                self.open_file_users();
+                Ok(())
+            }
             MainMenuAction::OpenNetwork => {
                 self.open_network_browser();
                 Ok(())
@@ -7086,6 +7123,7 @@ impl App {
         self.sampling_worker.suspend_dotnet();
         self.log_view_path = Some(loaded.path.clone());
         self.network_browser = super::network::NetworkView::default();
+        self.close_file_users();
         self.process_network = super::network::NetworkView::default();
         self.log_view_interval_seconds = Some(loaded.interval_seconds);
         self.log_view_frame_times = loaded.frame_times;

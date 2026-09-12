@@ -2,6 +2,7 @@ pub(crate) mod column_picker;
 mod cpu_core_dialog;
 mod cpu_panel;
 pub(crate) mod details_panel;
+pub(crate) mod file_users;
 pub(crate) mod footer;
 pub(crate) mod format;
 pub(crate) mod graph_reorder;
@@ -166,6 +167,10 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         draw_log_dir_dialog(frame, area, app, theme);
     }
     if app.show_process_info_dialog {
+        if app.file_users.visible {
+            file_users::draw_browser(frame, area, app, theme);
+            frame.render_widget(ModalScrim::new(theme, ModalScrimStrength::Dialog), area);
+        }
         if app.network_browser.visible {
             network::draw_browser(frame, area, app, theme);
             frame.render_widget(ModalScrim::new(theme, ModalScrimStrength::Dialog), area);
@@ -173,6 +178,8 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         draw_process_info_dialog(frame, area, app, theme);
     } else if app.network_browser.visible {
         network::draw_browser(frame, area, app, theme);
+    } else if app.file_users.visible {
+        file_users::draw_browser(frame, area, app, theme);
     }
     if app.show_cpu_core_dialog {
         draw_cpu_core_dialog(frame, area, app, theme);

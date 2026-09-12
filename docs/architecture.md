@@ -64,6 +64,8 @@ Worker results carry enough identity, generation, or request information to reje
 
 The global Network browser and Process Info Network tab share an independent Network worker with a bounded request queue. Endpoint reports belong to their dialog sessions, outside `Snapshot`, histories, Recording, and exports. Capturing IP Helper tables and verifying process owners for navigation never runs on the UI or sampling thread.
 
+Find file users has a separate controller and an isolated helper process for system-wide disk-file handle inspection. The helper shares handle-table, duplication, and path-resolution primitives with Files; it never enters the normal startup, configuration, single-instance, or terminal lifecycle. Bounded protocol messages, a latest-result slot, cancellation, deadlines, and job ownership bound scan work and cleanup. The browser owns queries and results independently of sampling and Recording.
+
 ### 3.2 Keep state ownership centralized
 
 `App` owns Live, paused, Recording, Log-list, and Log-view state. Display accessors select the appropriate snapshot and history without asking widgets to maintain activity-specific copies.

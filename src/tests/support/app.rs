@@ -165,6 +165,9 @@ pub(in crate::tests) fn make_test_app_with_workers(
         network_browser: crate::app::network::NetworkView::default(),
         process_network: crate::app::network::NetworkView::default(),
         network_next_id: 0,
+        file_users_worker: crate::samplers::file_users::FileUsersWorker::test_pair().0,
+        file_users: crate::app::file_users::FileUsersView::default(),
+        file_users_next_id: 0,
         sampling_in_progress: false,
         snapshot,
         system_info_host: app::system_info::SystemInfoHost::default(),
@@ -291,6 +294,7 @@ pub(in crate::tests) fn make_test_app_with_workers(
             ..ui::widgets::scrollable_modal::ScrollableModalState::default()
         },
         process_info_target: None,
+        process_info_verified_snapshot_at: None,
         process_info_generation: 0,
         show_cpu_core_dialog: false,
         cpu_core_scroll: ui::widgets::scrollable_modal::ScrollableModalState {

@@ -1,0 +1,424 @@
+use anyhow::Result;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::{Position, Rect};
+
+use super::{AppActivity, ProcessInfoTab, ProcessLifecycle, state::ProcessInfoDialogTarget};
+use crate::{
+    App,
+    model::file_users::*,
+    ui::{file_users as ui, widgets::scrollable_modal::ScrollableModalState},
+};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum FileUsersFocus {
+    #[default]
+    Query,
+    Mode,
+    Results,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct FileUsersView {
+    pub(crate) visible: bool,
+    pub(crate) draft: String,
+    pub(crate) cursor: usize,
+    pub(crate) mode: FileSearchMode,
+    pub(crate) searched: Option<FileSearchQuery>,
+    pub(crate) report: FileSearchReport,
+    pub(crate) focus: FileUsersFocus,
+    pub(crate) selected: usize,
+    pub(crate) scroll: ScrollableModalState,
+    pub(crate) detail: bool,
+    pub(crate) pending: Option<u64>,
+    pub(crate) verifying: bool,
+    pub(crate) notice: Option<String>,
+}
+
+impl FileUsersView {
+    pub(crate) fn selected_entry(&self) -> Option<&FileUserMatch> {
+        self.report.matches.get(self.selected)
+    }
+}
+
+impl App {
+    pub(crate) fn open_file_users(&mut self) {
+        if self.activity() == AppActivity::LogView {
+            return;
+        }
+        self.file_users_worker.cancel();
+        self.file_users = FileUsersView {
+            visible: true,
+            ..FileUsersView::default()
+        };
+    }
+
+    pub(crate) fn close_file_users(&mut self) {
+        self.file_users_worker.cancel();
+        self.file_users = FileUsersView::default();
+    }
+
+    pub(crate) fn start_file_search(&mut self) {
+        if self.activity() == AppActivity::LogView
+            || !self.file_users.visible
+            || self.file_users.pending.is_some()
+        {
+            return;
+        }
+        let query = FileSearchQuery {
+            text: self.file_users.draft.clone(),
+            mode: self.file_users.mode,
+        };
+        if let Err(error) = query.validate() {
+            self.file_users.notice = Some(error);
+            return;
+        }
+        self.file_users_next_id = self.file_users_next_id.wrapping_add(1).max(1);
+        let id = self.file_users_next_id;
+        match self
+            .file_users_worker
+            .request(id, FileUsersRequest::Search(query.clone()))
+        {
+            Ok(()) => {
+                let view = &mut self.file_users;
+                view.searched = Some(query);
+                view.report = FileSearchReport::default();
+                view.pending = Some(id);
+                view.verifying = false;
+                view.selected = 0;
+                view.detail = false;
+                view.scroll.reset();
+                view.focus = FileUsersFocus::Results;
+                view.notice = None;
+            }
+            Err(error) => self.file_users.notice = Some(error.to_string()),
+        }
+    }
+
+    pub(crate) fn poll_file_users_results(&mut self) -> bool {
+        let Some(update) = self.file_users_worker.take_update() else {
+            return false;
+        };
+        if !self.file_users.visible
+            || self.activity() == AppActivity::LogView
+            || self.file_users.pending != Some(update.id)
+        {
+            return false;
+        }
+        let finished = update.report.end.is_some();
+        if self.file_users.verifying {
+            if finished {
+                self.file_users.pending = None;
+                self.file_users.verifying = false;
+                self.file_users.notice = match &update.report.end {
+                    Some(FileSearchEnd::Failed(error)) => Some(error.clone()),
+                    Some(FileSearchEnd::Complete) => update.report.cleanup_warning.clone(),
+                    end => Some(
+                        end.as_ref()
+                            .map_or("Owner unavailable", FileSearchEnd::label)
+                            .into(),
+                    ),
+                };
+                if update.report.end == Some(FileSearchEnd::Complete)
+                    && update.report.cleanup_warning.is_none()
+                    && let Some(owner) = update.owner
+                {
+                    let target = ProcessInfoDialogTarget {
+                        identity: owner.identity(),
+                        process: owner.process_row(),
+                        lifecycle: ProcessLifecycle::Live,
+                    };
+                    if let Err(error) =
+                        self.open_verified_process_info_dialog(target, ProcessInfoTab::Files)
+                    {
+                        self.file_users.notice = Some(error.to_string());
+                    }
+                }
+            }
+        } else {
+            let key = self
+                .file_users
+                .selected_entry()
+                .map(|e| (e.path.clone(), e.owner.pid, e.owner.creation_time));
+            self.file_users.report = update.report;
+            if let Some((path, pid, created)) = key {
+                self.file_users.selected = self
+                    .file_users
+                    .report
+                    .matches
+                    .iter()
+                    .position(|e| {
+                        e.path == path && e.owner.pid == pid && e.owner.creation_time == created
+                    })
+                    .unwrap_or(0);
+            }
+            if finished {
+                self.file_users.pending = None;
+                if self.file_users.notice.as_deref() == Some("Cancelling...") {
+                    self.file_users.notice = None;
+                }
+            }
+            self.sync_file_users_layout(self.last_screen_area);
+        }
+        true
+    }
+
+    fn open_file_user_owner(&mut self) {
+        if self.file_users.pending.is_some() {
+            self.file_users.notice =
+                Some("Finish or cancel the search before opening a process".into());
+            return;
+        }
+        let Some(entry) = self.file_users.selected_entry() else {
+            return;
+        };
+        let owner = entry.owner.clone();
+        self.file_users_next_id = self.file_users_next_id.wrapping_add(1).max(1);
+        let id = self.file_users_next_id;
+        match self
+            .file_users_worker
+            .request(id, FileUsersRequest::Verify(owner))
+        {
+            Ok(()) => {
+                self.file_users.pending = Some(id);
+                self.file_users.verifying = true;
+                self.file_users.notice = None;
+            }
+            Err(error) => self.file_users.notice = Some(error.to_string()),
+        }
+    }
+
+    pub(crate) fn sync_file_users_layout(&mut self, screen: Rect) {
+        let area = ui::browser_layout(screen).content;
+        let view = &mut self.file_users;
+        let total = if view.detail {
+            ui::detail_lines(view, area.width).len()
+        } else {
+            view.report.matches.len()
+        };
+        let rows = if view.detail {
+            area.height
+        } else {
+            ui::content_layout(area).rows.height
+        };
+        view.scroll.set_page_size(rows as usize, total);
+        if !view.detail {
+            view.selected = view.selected.min(total.saturating_sub(1));
+            view.scroll.ensure_visible(view.selected, total);
+        }
+    }
+
+    pub(crate) fn on_file_users_key(&mut self, key: KeyEvent) -> Result<()> {
+        self.sync_file_users_layout(self.last_screen_area);
+        if key.code == KeyCode::Esc {
+            if self.file_users.detail {
+                self.file_users.detail = false;
+                self.file_users.scroll.reset();
+            } else if self.file_users.pending.is_some()
+                && self.file_users.notice.as_deref() != Some("Cancelling...")
+            {
+                self.file_users_worker.cancel();
+                self.file_users.notice = Some("Cancelling...".into());
+            } else {
+                self.close_file_users();
+            }
+            return Ok(());
+        }
+        if matches!(key.code, KeyCode::Char('u' | 'U'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            self.start_file_search();
+            return Ok(());
+        }
+        if matches!(key.code, KeyCode::Char('c' | 'C'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            if let Some(entry) = self.file_users.selected_entry() {
+                let text = entry.plain_text();
+                self.file_users.notice =
+                    Some(match super::clipboard::copy_text_to_clipboard(&text) {
+                        Ok(()) => "Copied file user".into(),
+                        Err(e) => format!("Copy failed: {e}"),
+                    });
+            }
+            return Ok(());
+        }
+        let view = &mut self.file_users;
+        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+            view.detail = false;
+            let reverse =
+                key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT);
+            view.focus = match (view.focus, reverse) {
+                (FileUsersFocus::Query, false) | (FileUsersFocus::Results, true) => {
+                    FileUsersFocus::Mode
+                }
+                (FileUsersFocus::Mode, false) | (FileUsersFocus::Query, true) => {
+                    FileUsersFocus::Results
+                }
+                _ => FileUsersFocus::Query,
+            };
+            return Ok(());
+        }
+        if view.detail {
+            if key.code == KeyCode::Enter {
+                view.detail = false;
+                view.scroll.reset();
+                return Ok(());
+            }
+        } else if view.focus == FileUsersFocus::Query {
+            match key.code {
+                KeyCode::Enter => self.start_file_search(),
+                KeyCode::Left => {
+                    view.cursor = view.draft[..view.cursor]
+                        .char_indices()
+                        .next_back()
+                        .map_or(0, |(i, _)| i)
+                }
+                KeyCode::Right => {
+                    view.cursor += view.draft[view.cursor..]
+                        .chars()
+                        .next()
+                        .map_or(0, char::len_utf8)
+                }
+                KeyCode::Home => view.cursor = 0,
+                KeyCode::End => view.cursor = view.draft.len(),
+                KeyCode::Backspace if view.cursor > 0 => {
+                    let previous = view.draft[..view.cursor]
+                        .char_indices()
+                        .next_back()
+                        .map_or(0, |(i, _)| i);
+                    view.draft.drain(previous..view.cursor);
+                    view.cursor = previous;
+                }
+                KeyCode::Delete if view.cursor < view.draft.len() => {
+                    view.draft.remove(view.cursor);
+                }
+                KeyCode::Char(ch)
+                    if !ch.is_control()
+                        && !key
+                            .modifiers
+                            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    if view.draft.encode_utf16().count() + ch.len_utf16() <= MAX_QUERY_UNITS {
+                        view.draft.insert(view.cursor, ch);
+                        view.cursor += ch.len_utf8();
+                    } else {
+                        view.notice = Some("Query limit: 4096 UTF-16 units".into());
+                    }
+                }
+                _ => {}
+            }
+            return Ok(());
+        } else if view.focus == FileUsersFocus::Mode {
+            if matches!(
+                key.code,
+                KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right | KeyCode::Left
+            ) {
+                view.mode = if key.code == KeyCode::Left {
+                    view.mode.next().next()
+                } else {
+                    view.mode.next()
+                };
+            }
+            return Ok(());
+        } else {
+            match key.code {
+                KeyCode::Enter => {
+                    self.open_file_user_owner();
+                    return Ok(());
+                }
+                KeyCode::Char(' ') => {
+                    view.detail = true;
+                    view.scroll.reset();
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        let area = ui::browser_layout(self.last_screen_area).content;
+        let view = &mut self.file_users;
+        let total = if view.detail {
+            ui::detail_lines(view, area.width).len()
+        } else {
+            view.report.matches.len()
+        };
+        let amount = if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
+            view.scroll.page_size.max(1)
+        } else {
+            1
+        };
+        let current = if view.detail {
+            view.scroll.offset
+        } else {
+            view.selected
+        };
+        let next = match key.code {
+            KeyCode::Up | KeyCode::PageUp => current.saturating_sub(amount),
+            KeyCode::Down | KeyCode::PageDown => current.saturating_add(amount),
+            KeyCode::Home => 0,
+            KeyCode::End => total.saturating_sub(1),
+            _ => return Ok(()),
+        }
+        .min(total.saturating_sub(1));
+        if view.detail {
+            view.scroll.offset = next.min(view.scroll.max_offset(total));
+        } else {
+            view.selected = next;
+            view.scroll.ensure_visible(next, total);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn on_file_users_mouse(&mut self, mouse: MouseEvent, screen: Rect) {
+        self.sync_file_users_layout(screen);
+        let area = ui::browser_layout(screen).content;
+        let position = Position::new(mouse.column, mouse.row);
+        let layout = ui::content_layout(area);
+        let view = &mut self.file_users;
+        let total = if view.detail {
+            ui::detail_lines(view, area.width).len()
+        } else {
+            view.report.matches.len()
+        };
+        let bar = ui::scrollbar_area(area, view);
+        match mouse.kind {
+            MouseEventKind::Up(MouseButton::Left) => view.scroll.stop_drag(),
+            MouseEventKind::Drag(MouseButton::Left) if view.scroll.dragging => {
+                if let Some(bar) = bar {
+                    view.scroll.drag_to(bar, mouse.row, total);
+                    if !view.detail {
+                        view.selected = view.scroll.offset;
+                    }
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) if area.contains(position) => {
+                if let Some(bar) = bar.filter(|b| b.contains(position)) {
+                    view.scroll.start_drag(bar, mouse.row, total);
+                    view.scroll.drag_to(bar, mouse.row, total);
+                    if !view.detail {
+                        view.selected = view.scroll.offset;
+                    }
+                } else if !view.detail && layout.query.contains(position) {
+                    view.focus = FileUsersFocus::Query;
+                    view.cursor = view.draft.len();
+                } else if !view.detail && layout.mode.contains(position) {
+                    view.focus = FileUsersFocus::Mode;
+                    view.mode = view.mode.next();
+                } else if !view.detail && layout.rows.contains(position) {
+                    view.focus = FileUsersFocus::Results;
+                    view.selected = (view.scroll.offset + (mouse.row - layout.rows.y) as usize)
+                        .min(total.saturating_sub(1));
+                }
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if area.contains(position) => {
+                view.focus = FileUsersFocus::Results;
+                let key = if mouse.kind == MouseEventKind::ScrollUp {
+                    KeyCode::Up
+                } else {
+                    KeyCode::Down
+                };
+                let _ = self.on_file_users_key(KeyEvent::new(key, KeyModifiers::NONE));
+            }
+            _ => {}
+        }
+    }
+}

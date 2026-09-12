@@ -6,4 +6,7 @@ use clap::Parser;
     version,
     about = "Windows process investigation TUI"
 )]
-pub(crate) struct Cli;
+pub(crate) struct Cli {
+    #[arg(long, hide = true)]
+    pub(crate) file_users_helper: Option<String>,
+}

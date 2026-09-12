@@ -29,3 +29,4 @@ pub(crate) use system::{
     GpuAdapterSample, GpuEngineSummary, GpuSample, PerformanceSample, ProcessGpuSample,
     SystemCounterSample,
 };
+pub(crate) mod file_users;
