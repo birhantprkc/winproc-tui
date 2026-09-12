@@ -88,7 +88,8 @@ Use `Tab` / `Shift+Tab` to move between panels and the arrow keys to select rows
 - **Graphs and A/B comparison**: Keeps up to 16 metrics in an ordered workspace with synchronized Samples, then compares any two exact sample times.
 - **Investigation Profiles**: Saves named Tracking Lists for investigations that may start before their target processes. Tracked processes retain their latest values after exit.
 - **.NET metrics**: Automatically detects live .NET 8/9/10 processes and shows managed-runtime metrics, with selected heap metrics for .NET Framework 4.8.
-- **Process Info**: Brings metrics, image and runtime details, open files, DLLs, and environment variables together for the selected process.
+- **Process Info**: Brings metrics, image and runtime details, open files, DLLs, environment variables, and network endpoints together for the selected process.
+- **Network endpoints**: Use `MENU > Investigate > Network endpoints` to inspect TCP/UDP addresses, ports, and owners across the system, then open Process Info for an owner. Lists refresh on demand and are not recorded.
 - **Recording and Log view**: Records system metrics and matching processes as JSON Lines, then reopens them in the same Processes, Graph, Samples, and A/B views.
 
 The last working Tracking List and application-wide presentation preferences are restored on the next launch, or startup can choose a saved Investigation Profile or an empty Tracking List. Graph registrations begin empty on every run; filter input and runtime process identities are not saved.

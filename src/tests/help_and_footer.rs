@@ -615,10 +615,12 @@ fn help_dialog_takes_focus_border_from_previous_panel() {
     app.focused_panel = FocusedPanel::Processes;
     app.show_help = true;
 
-    let screen = Rect::new(0, 0, 140, 70);
+    let screen = Rect::new(0, 0, 240, 70);
     let popup = help_area(screen);
     let buffer = render_app_to_buffer(&app, screen.width, screen.height);
     let process_table = main_panel_areas_for_app(screen, &app).processes.area;
+    // Inspect a background corner that is not covered by the Help dialog.
+    assert!(!popup.contains((process_table.x, process_table.y).into()));
     assert_eq!(buffer[(popup.x, popup.y)].fg, app.theme().focus_border);
     assert_eq!(buffer[(process_table.x, process_table.y)].symbol(), "╭");
     assert_ne!(

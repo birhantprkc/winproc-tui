@@ -1,5 +1,6 @@
 pub(crate) mod columns;
 pub(crate) mod history;
+pub(crate) mod network;
 pub(crate) mod process;
 pub(crate) mod process_environment;
 pub(crate) mod process_module;

@@ -6,7 +6,7 @@ This document is the entry point for system-wide responsibility boundaries, runt
 
 - [Tracking and Live History](tracking-and-history.md): Current Investigation, profiles, tracking intent, process identity, Ghost Rows, and retention.
 - [Graph Workspace](graph-workspace.md): Graph identity, shared time state, Samples, A/B comparison, and responsive layout.
-- [Process Investigation](process-investigation.md): System Info, Process Info, Files, DLLs, Environment, and asynchronous target safety.
+- [Process Investigation](process-investigation.md): System Info, Process Info, Files, DLLs, Environment, Network endpoints, and asynchronous target safety.
 - [Recording and Log View](recording-and-log-view.md): activity transitions, session ownership, failure handling, and log loading.
 - [Metrics](metrics.md): metric meanings, data sources, display formats, aggregation, and recording schemas.
 - [.NET Runtime Metrics Collection](dotnet-metrics-collection.md): diagnostics IPC, EventPipe parsing, and runtime-specific collection details.
@@ -61,6 +61,8 @@ Windows counter, handle, module, file-metadata, remote-memory, and log operation
 Requests and results cross thread boundaries through typed channels or bounded latest-value caches. `App` allows only one sample request in flight, so a slow collection delays the next result instead of creating an unbounded queue.
 
 Worker results carry enough identity, generation, or request information to reject stale results after selection, dialog, process-lifetime, or activity changes.
+
+The global Network browser and Process Info Network tab share an independent Network worker with a bounded request queue. Endpoint reports belong to their dialog sessions, outside `Snapshot`, histories, Recording, and exports. Capturing IP Helper tables and verifying process owners for navigation never runs on the UI or sampling thread.
 
 ### 3.2 Keep state ownership centralized
 

@@ -237,6 +237,23 @@ It does not show a true file-open timestamp because the stable file metadata tim
 When copying to the clipboard, use raw text without a header.
 Usually this is only the path. If the same path has multiple handles, copy `path<TAB>count`.
 
+## Network Endpoints
+
+The global Network browser and Process Info `Network` tab show on-demand endpoint reports, separate from throughput metrics. Sources are `GetExtendedTcpTable(TCP_TABLE_OWNER_PID_ALL)` and `GetExtendedUdpTable(UDP_TABLE_OWNER_PID)` for both `AF_INET` and `AF_INET6`.
+
+| Field | Meaning and format |
+|---|---|
+| Protocol | `TCP4`, `TCP6`, `UDP4`, or `UDP6`. |
+| Local | Numeric bound address and decimal port, such as `127.0.0.1:8080` or `[fe80::1%7]:5353`. Wildcard binds retain `0.0.0.0` or `::`; IPv6 interface scope is retained when present. |
+| Remote | Numeric TCP peer address and port. TCP listeners and UDP rows display `--`. UDP tables do not expose a peer or TCP-style listening state. |
+| State | Windows `netstat` TCP labels, including `LISTENING`, `ESTABLISHED`, `CLOSE_WAIT`, and `TIME_WAIT`. UDP has no TCP connection state and leaves this field empty, including in details and tab-separated clipboard output. Unrecognized TCP state codes display `UNKNOWN`. |
+| PID | Owning PID reported by the table, retained even if the process name cannot be verified. |
+| Process | Name resolved for a verified process lifetime, otherwise `--`. |
+
+Windows network-order ports are converted before display. Columns size to the filtered endpoint values and available space, with numeric endpoints taking priority over long executable names when space is limited. The global browser expands on wider terminals. Narrow tables omit the remote column; the detail view and clipboard retain complete IPv6 addresses, scopes, peers, and names. Filtering searches the full protocol, local/remote endpoint, state, PID, and process name, case-insensitively. Clipboard output is one raw tab-separated row in that order, without a header. TCP state labels are identical in the table, detail view, filter, and clipboard output.
+
+Capture metadata includes start/end times, successful-table count, and per-table failures. Missing tables are not interpreted as zero endpoints. An unverified name does not mean that the endpoint lacks an owning process. These reports and metadata are not sampled, recorded, or exported. Lifecycle and navigation rules are defined in [Process Investigation](process-investigation.md).
+
 ## Loaded DLLs
 
 The Process Info `DLLs` tab displays a point-in-time snapshot of DLL modules loaded by the fixed live process target. It is not a sampled metric and is not recorded. The list excludes the main executable and non-DLL modules, removes duplicate paths case-insensitively, and sorts by DLL name then directory.

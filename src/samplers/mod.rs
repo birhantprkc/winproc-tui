@@ -4,6 +4,7 @@ mod disk;
 mod dotnet_runtime;
 pub(crate) mod gpu;
 pub(crate) mod memory;
+pub(crate) mod network;
 pub(crate) mod open_files;
 pub(crate) mod pdh;
 pub(crate) mod process;

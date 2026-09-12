@@ -25,8 +25,9 @@ All live collectors verify that the process still has the expected identity. A P
 | Files | Explicitly enumerates open disk files on an independent worker. |
 | DLLs | Takes an explicit module and file-metadata snapshot on its own worker. |
 | Environment | Reads the live target's remote environment block on an independent worker and clears values when the dialog closes. |
+| Network | Captures TCP/UDP endpoints for the fixed live process through the shared Network worker on first activation or explicit refresh. |
 
-Image, Files, DLL, and Environment collection never runs as part of ordinary sampling. Each request carries the dialog generation; refreshable tabs also carry request IDs. Results from a closed, reopened, or superseded dialog are rejected even if they refer to the same PID.
+Image, Files, DLL, Environment, and Network collection never runs as part of ordinary sampling. Each request carries the dialog generation; refreshable tabs also carry request IDs. Results from a closed, reopened, or superseded dialog are rejected even if they refer to the same PID.
 
 Image collection may inspect loaded `coreclr.dll` or `clr.dll` to report the active .NET runtime version. This does not add module enumeration to normal sampling or Recording.
 
@@ -46,9 +47,23 @@ Environment values may contain passwords, tokens, or other secrets. They remain 
 
 ## Log View and A/B Data
 
-Log view never starts live Image, Files, DLL, or Environment workers. Metrics and recorded Image fields use loaded data when present; dynamic tabs show that their data was not recorded.
+Log view never starts live Image, Files, DLL, Environment, or Network workers. Metrics and recorded Image fields use loaded data when present; dynamic tabs show that their data was not recorded.
 
 Process Info comparisons resolve A, B, and displayed-current values by exact `ProcessIdentity` and exact `captured_at`. Nearby samples, the latest Ghost Row value, and samples from a reused PID are not substituted. A delta is calculated only when both exact values exist.
+
+## Network Endpoints
+
+The global Network browser and Process Info Network tab share the same collector, endpoint model, filter, table, detail view, and clipboard format. The global browser defaults to TCP listeners plus bound UDP endpoints. The process tab defaults to all available endpoints for the dialog's fixed target, including connected TCP peers. Both can change the local display mode without collecting again.
+
+The Process Info Network tab follows the other filterable tabs: printable input edits the filter directly while content has focus, without entering a separate editing mode. Row navigation, refresh, opening details, and closing the dialog remain available during filtering. The global browser retains its explicit filter-editing mode. Contextual keys are defined in Help and the respective footers.
+
+Opening the browser or first activating the tab requests one capture. Refresh is explicit, stays on the independent Network worker, and does not queue another request for the same pending session. The worker has a bounded request queue. Tab switches retain the capture, filter, and selection; closing a session invalidates its pending work. Every result must match its target, generation, and request ID. Selection survives refresh by endpoint key where possible.
+
+The four protocol/family tables are captured separately, so the report describes a capture interval rather than an atomic system snapshot. Successful tables remain visible if another table fails. The view shows capture time, successful-table coverage, and unresolved-owner counts. Full capture errors are available in details, including when no endpoint is selected. A failed refresh preserves the previous capture with its original timestamp and a visible notice.
+
+Owner verification brackets table capture with a held process handle and native creation time. Rows remain visible with an unavailable owner when verification fails. Opening Process Info from a global row performs a fresh creation-time check on the worker; an exited or replaced process cannot be opened by reusing its PID. The Process Info target does not depend on the current Processes selection or filter. Closing Process Info returns to the retained global results.
+
+Network investigation remains available during Live, display pause, and Recording. Endpoint reports are session-local and never enter samples, histories, configuration, Recording, or exports. Existing metric recording continues independently. Log view has no global Network browser and the process tab displays its not-recorded state. There is no DNS lookup, traffic capture, periodic endpoint polling, or endpoint modification.
 
 ## Input and Layout Boundaries
 

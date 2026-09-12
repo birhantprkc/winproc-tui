@@ -269,6 +269,7 @@ pub(crate) enum ProcessInfoTab {
     Files,
     Dlls,
     Environment,
+    Network,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -278,12 +279,13 @@ pub(crate) enum ProcessInfoFocus {
 }
 
 impl ProcessInfoTab {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Metrics,
         Self::Image,
         Self::Files,
         Self::Dlls,
         Self::Environment,
+        Self::Network,
     ];
 
     pub(crate) const fn label(self) -> &'static str {
@@ -293,11 +295,15 @@ impl ProcessInfoTab {
             Self::Files => "Files",
             Self::Dlls => "DLLs",
             Self::Environment => "Environment",
+            Self::Network => "Network",
         }
     }
 
     pub(crate) const fn content_is_focusable(self) -> bool {
-        matches!(self, Self::Files | Self::Dlls | Self::Environment)
+        matches!(
+            self,
+            Self::Files | Self::Dlls | Self::Environment | Self::Network
+        )
     }
 
     pub(crate) fn next(self) -> Self {
@@ -315,6 +321,7 @@ impl ProcessInfoTab {
             Self::Files => 2,
             Self::Dlls => 3,
             Self::Environment => 4,
+            Self::Network => 5,
         }
     }
 }
@@ -914,6 +921,7 @@ pub(crate) enum AppActivity {
 pub(crate) enum MainMenuSection {
     Profile,
     View,
+    Investigate,
     Log,
     Config,
 }
@@ -923,6 +931,7 @@ impl MainMenuSection {
         match self {
             Self::Profile => "Profile",
             Self::View => "View",
+            Self::Investigate => "Investigate",
             Self::Log => "Log",
             Self::Config => "Config",
         }
@@ -936,6 +945,10 @@ impl MainMenuSection {
             }
             (Self::View, AppActivity::Live | AppActivity::Recording) => LIVE_VIEW_MAIN_MENU_ACTIONS,
             (Self::View, AppActivity::LogView) => LOG_VIEW_VIEW_MAIN_MENU_ACTIONS,
+            (Self::Investigate, AppActivity::Live | AppActivity::Recording) => {
+                &[MainMenuAction::OpenNetwork]
+            }
+            (Self::Investigate, AppActivity::LogView) => &[],
             (Self::Log, AppActivity::Live) => LIVE_LOG_MAIN_MENU_ACTIONS,
             (Self::Log, AppActivity::LogView) => LOG_VIEW_LOG_MAIN_MENU_ACTIONS,
             (Self::Log, AppActivity::Recording) => &[],
@@ -946,6 +959,7 @@ impl MainMenuSection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MainMenuAction {
+    OpenNetwork,
     OpenProfiles,
     SaveProfile,
     SaveProfileAs,
@@ -965,6 +979,7 @@ pub(crate) enum MainMenuAction {
 impl MainMenuAction {
     pub(crate) const fn label(self) -> &'static str {
         match self {
+            Self::OpenNetwork => "Network endpoints",
             Self::OpenProfiles => "Open",
             Self::SaveProfile => "Save",
             Self::SaveProfileAs => "Save As",
@@ -999,6 +1014,7 @@ const LIVE_MAIN_MENU_ITEMS: &[MainMenuItem] = &[
     MainMenuItem::Section(MainMenuSection::Profile),
     MainMenuItem::Action(MainMenuAction::OpenColumns),
     MainMenuItem::Section(MainMenuSection::View),
+    MainMenuItem::Section(MainMenuSection::Investigate),
     MainMenuItem::Action(MainMenuAction::StartRecording),
     MainMenuItem::Section(MainMenuSection::Log),
     MainMenuItem::Section(MainMenuSection::Config),
@@ -1009,6 +1025,7 @@ const RECORDING_MAIN_MENU_ITEMS: &[MainMenuItem] = &[
     MainMenuItem::Section(MainMenuSection::Profile),
     MainMenuItem::Action(MainMenuAction::OpenColumns),
     MainMenuItem::Section(MainMenuSection::View),
+    MainMenuItem::Section(MainMenuSection::Investigate),
     MainMenuItem::Action(MainMenuAction::StopRecording),
     MainMenuItem::Section(MainMenuSection::Config),
     MainMenuItem::Action(MainMenuAction::Help),
@@ -1091,6 +1108,10 @@ pub(crate) struct App {
     pub(crate) open_files_worker: OpenFilesWorker,
     pub(crate) process_modules_worker: ProcessModulesWorker,
     pub(crate) process_environment_worker: ProcessEnvironmentWorker,
+    pub(crate) network_worker: crate::samplers::network::NetworkWorker,
+    pub(crate) network_browser: super::network::NetworkView,
+    pub(crate) process_network: super::network::NetworkView,
+    pub(crate) network_next_id: u64,
     pub(crate) sampling_in_progress: bool,
     pub(crate) snapshot: Snapshot,
     pub(crate) system_info_host: SystemInfoHost,
@@ -1338,6 +1359,10 @@ impl App {
             open_files_worker,
             process_modules_worker,
             process_environment_worker,
+            network_worker: crate::samplers::network::NetworkWorker::spawn(),
+            network_browser: super::network::NetworkView::default(),
+            process_network: super::network::NetworkView::default(),
+            network_next_id: 0,
             sampling_in_progress: false,
             snapshot: initial.snapshot,
             system_info_host: SystemInfoHost::collect(),
@@ -1669,6 +1694,7 @@ impl App {
             || self.show_log_list
             || self.show_log_dir_dialog
             || self.show_process_info_dialog
+            || self.network_browser.visible
             || self.show_cpu_core_dialog
             || self.show_system_info_dialog
             || self.graph_reorder_dialog.is_some()
@@ -4851,6 +4877,10 @@ impl App {
     }
 
     pub(crate) fn set_process_info_page_size(&mut self, page_size: usize) {
+        // Network owns separate table and detail geometry in sync_network_layout.
+        if self.process_info_tab == ProcessInfoTab::Network {
+            return;
+        }
         let total = self.process_info_total_rows();
         self.active_process_info_scroll_mut()
             .set_page_size(page_size, total);
@@ -4927,6 +4957,7 @@ impl App {
             ProcessInfoTab::Files => self.ensure_open_files_for_target()?,
             ProcessInfoTab::Dlls => self.ensure_process_modules_for_target()?,
             ProcessInfoTab::Environment => self.ensure_process_environment_for_target()?,
+            ProcessInfoTab::Network => self.ensure_process_network(),
             ProcessInfoTab::Metrics => {}
         }
         Ok(())
@@ -4961,6 +4992,7 @@ impl App {
             ProcessInfoTab::Files => &self.open_files_scroll,
             ProcessInfoTab::Dlls => &self.process_info_dlls_scroll,
             ProcessInfoTab::Environment => &self.process_info_environment_scroll,
+            ProcessInfoTab::Network => &self.process_network.scroll,
         }
     }
 
@@ -4971,6 +5003,7 @@ impl App {
             ProcessInfoTab::Files => &mut self.open_files_scroll,
             ProcessInfoTab::Dlls => &mut self.process_info_dlls_scroll,
             ProcessInfoTab::Environment => &mut self.process_info_environment_scroll,
+            ProcessInfoTab::Network => &mut self.process_network.scroll,
         }
     }
 
@@ -5234,7 +5267,7 @@ impl App {
             })
     }
 
-    fn open_process_info_dialog(
+    pub(super) fn open_process_info_dialog(
         &mut self,
         target: ProcessInfoDialogTarget,
         initial_tab: ProcessInfoTab,
@@ -5242,6 +5275,7 @@ impl App {
         let process_name = target.process.name.clone();
         self.process_info_generation = self.process_info_generation.wrapping_add(1).max(1);
         self.process_info_target = Some(target);
+        self.reset_process_network();
         self.process_info_tab = initial_tab;
         self.process_info_focus = ProcessInfoFocus::Tabs;
         self.show_process_info_dialog = true;
@@ -5288,11 +5322,14 @@ impl App {
             self.ensure_process_modules_for_target()?;
         } else if initial_tab == ProcessInfoTab::Environment {
             self.ensure_process_environment_for_target()?;
+        } else if initial_tab == ProcessInfoTab::Network {
+            self.ensure_process_network();
         }
         Ok(())
     }
 
     pub(crate) fn close_process_info_dialog(&mut self) {
+        self.process_network = super::network::NetworkView::default();
         self.show_process_info_dialog = false;
         self.process_info_target = None;
         self.process_info_scroll.stop_drag();
@@ -5553,6 +5590,7 @@ impl App {
         match self.process_info_tab {
             ProcessInfoTab::Dlls => self.process_modules_show_detail,
             ProcessInfoTab::Environment => self.process_environment_show_detail,
+            ProcessInfoTab::Network => self.process_network.detail,
             ProcessInfoTab::Metrics | ProcessInfoTab::Image | ProcessInfoTab::Files => false,
         }
     }
@@ -5580,6 +5618,10 @@ impl App {
 
     pub(crate) fn close_process_info_detail(&mut self) -> bool {
         match self.process_info_tab {
+            ProcessInfoTab::Network if self.process_network.detail => {
+                self.process_network.detail = false;
+                self.process_network.scroll.reset();
+            }
             ProcessInfoTab::Dlls if self.process_modules_show_detail => {
                 self.process_modules_show_detail = false;
                 self.process_info_dlls_scroll.scroll_home();
@@ -6443,6 +6485,10 @@ impl App {
 
         self.dismiss_main_menu();
         match action {
+            MainMenuAction::OpenNetwork => {
+                self.open_network_browser();
+                Ok(())
+            }
             MainMenuAction::OpenProfiles => {
                 self.open_investigation_profiles();
                 Ok(())
@@ -7001,6 +7047,8 @@ impl App {
         self.dismiss_main_menu();
         self.sampling_worker.suspend_dotnet();
         self.log_view_path = Some(loaded.path.clone());
+        self.network_browser = super::network::NetworkView::default();
+        self.process_network = super::network::NetworkView::default();
         self.log_view_interval_seconds = Some(loaded.interval_seconds);
         self.log_view_frame_times = loaded.frame_times;
         self.log_view_watch_list = loaded.tracked_names.clone();

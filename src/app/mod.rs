@@ -4,6 +4,7 @@ pub(crate) mod export;
 pub(crate) mod log_format;
 pub(crate) mod logs;
 pub(crate) mod navigation;
+pub(crate) mod network;
 pub(crate) mod path_completion;
 pub(crate) mod profiles;
 pub(crate) mod state;
@@ -107,6 +108,7 @@ pub(crate) fn run_tui(
         dirty |= app.poll_open_files_results()?;
         dirty |= app.poll_process_modules_results()?;
         dirty |= app.poll_process_environment_results()?;
+        dirty |= app.poll_network_results();
         dirty |= app.poll_log_workers();
         dirty |= app.request_due_process_info()?;
         let sample_freshness = app.sample_freshness();
@@ -319,6 +321,8 @@ pub(crate) fn sync_layout_state(app: &mut App, screen_area: Rect) {
     app.set_graph_reorder_page_size(graph_reorder_page_size);
     app.set_log_list_page_size(crate::ui::log_list_page_size_for_screen(screen_area));
     app.set_process_info_page_size(process_info_page_size_for_screen(screen_area));
+    app.sync_network_layout(true, screen_area);
+    app.sync_network_layout(false, screen_area);
     let cpu_core_page_size = cpu_core_dialog_page_size_for_screen(screen_area, app);
     app.set_cpu_core_page_size(cpu_core_page_size);
     app.set_investigation_profiles_page_size(investigation_profiles_page_size_for_screen(

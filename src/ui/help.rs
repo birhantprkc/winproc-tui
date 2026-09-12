@@ -441,6 +441,85 @@ const PROCESS_GRAPH_SPLIT_ROWS: &[HelpItem] = &[
     },
 ];
 
+const NETWORK_ROWS: &[HelpItem] = &[
+    HelpItem {
+        key: "MENU > Investigate",
+        label: "Open Network endpoints (Live / Recording)",
+    },
+    HelpItem {
+        key: "Process Info > Network",
+        label: "Inspect the fixed process target",
+    },
+    HelpItem {
+        key: "a / Alt+A (Info)",
+        label: "Listen + UDP / All endpoints",
+    },
+    HelpItem {
+        key: "Type (Info)",
+        label: "Filter directly, including /, a, r, Space",
+    },
+    HelpItem {
+        key: "/ (global list)",
+        label: "Edit filter (or click Filter)",
+    },
+    HelpItem {
+        key: "Enter/Esc (global filter)",
+        label: "Finish editing; Ctrl+U clears",
+    },
+    HelpItem {
+        key: "←/→, Backspace/Delete",
+        label: "Move filter cursor / edit filter",
+    },
+    HelpItem {
+        key: "Home/End (global filter)",
+        label: "Move filter cursor to first / last",
+    },
+    HelpItem {
+        key: "↑/↓, PgUp/PgDn",
+        label: "Select row / page (wheel also selects)",
+    },
+    HelpItem {
+        key: "Home/End",
+        label: "First / last row",
+    },
+    HelpItem {
+        key: "Enter (global list)",
+        label: "Verify owner and open Process Info",
+    },
+    HelpItem {
+        key: "Space (global), Enter (Info)",
+        label: "Full endpoint and capture details",
+    },
+    HelpItem {
+        key: "↑/↓, PgUp/PgDn (detail)",
+        label: "Scroll; Home/End moves first/last",
+    },
+    HelpItem {
+        key: "Ctrl+C",
+        label: "Copy selected endpoint, tab-separated",
+    },
+    HelpItem {
+        key: "Ctrl+U / r (global)",
+        label: "Refresh explicitly; no automatic refresh",
+    },
+    HelpItem {
+        key: "Esc (detail/list)",
+        label: "Back / close; global results are retained",
+    },
+    HelpItem {
+        key: "Tab / Ctrl+←/→ (Info)",
+        label: "Focus tabs / change tab",
+    },
+    HelpItem {
+        key: "Partial / --",
+        label: "Missing tables / unverified owner",
+    },
+    HelpItem {
+        key: "Recording / Log view",
+        label: "Endpoints are never recorded",
+    },
+];
+
 const LEFT_SECTIONS: &[HelpSection] = &[
     HelpSection {
         title: "Global",
@@ -456,6 +535,11 @@ const LEFT_SECTIONS: &[HelpSection] = &[
         title: "Mouse",
         focus_hint: None,
         rows: MOUSE_ROWS,
+    },
+    HelpSection {
+        title: "Network endpoints",
+        focus_hint: Some("on demand"),
+        rows: NETWORK_ROWS,
     },
 ];
 

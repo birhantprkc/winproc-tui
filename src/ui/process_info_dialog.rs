@@ -80,6 +80,9 @@ pub(crate) fn draw_process_info_dialog(
             theme,
         ),
         ProcessInfoTab::Files => draw_open_files_tab(frame, layout.content, app, theme),
+        ProcessInfoTab::Network => {
+            super::network::draw_process_tab(frame, layout.content, app, theme)
+        }
         ProcessInfoTab::Dlls => draw_process_modules_tab(frame, layout.content, app, theme),
         ProcessInfoTab::Environment => {
             draw_process_environment_tab(frame, layout.content, app, theme)
@@ -130,6 +133,10 @@ pub(crate) fn process_info_total_rows(app: &App) -> usize {
         ProcessInfoTab::Files => open_files_total_rows(app),
         ProcessInfoTab::Dlls => process_modules_total_rows(app, width),
         ProcessInfoTab::Environment => process_environment_total_rows(app, width),
+        ProcessInfoTab::Network if app.process_network.detail => {
+            super::network::detail_lines(&app.process_network, width).len()
+        }
+        ProcessInfoTab::Network => app.process_network.entries().len(),
     }
 }
 
@@ -143,6 +150,9 @@ pub(crate) fn process_info_tab_at(screen: Rect, x: u16, y: u16) -> Option<Proces
 
 pub(crate) fn process_info_scrollbar_area_for_screen(screen: Rect, app: &App) -> Option<Rect> {
     let content = process_info_content_area_for_screen(screen);
+    if app.process_info_tab == ProcessInfoTab::Network {
+        return super::network::scrollbar_area(content, &app.process_network);
+    }
     if app.process_info_tab == ProcessInfoTab::Files {
         return open_files_scrollbar_area(content, app);
     }
@@ -207,15 +217,21 @@ fn draw_tabs(
 }
 
 fn tab_row_count(width: u16) -> u16 {
-    let required = ProcessInfoTab::ALL
-        .iter()
-        .map(|tab| tab.label().chars().count() as u16 + TAB_HORIZONTAL_PADDING)
-        .sum::<u16>();
-    if width >= required { 1 } else { 2 }
+    let mut rows = 1;
+    let mut used = 0;
+    for tab in ProcessInfoTab::ALL {
+        let size = tab.label().chars().count() as u16 + TAB_HORIZONTAL_PADDING;
+        if used > 0 && used + size > width {
+            rows += 1;
+            used = 0;
+        }
+        used += size.min(width);
+    }
+    rows
 }
 
-fn tab_areas(area: Rect) -> [Rect; 5] {
-    let mut result = [Rect::default(); 5];
+fn tab_areas(area: Rect) -> [Rect; ProcessInfoTab::ALL.len()] {
+    let mut result = [Rect::default(); ProcessInfoTab::ALL.len()];
     if area.is_empty() {
         return result;
     }
@@ -498,6 +514,11 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, footer: Rect, app: &App, theme: T
 }
 
 fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
+    if app.process_info_tab == ProcessInfoTab::Network
+        && app.process_info_focus == ProcessInfoFocus::Content
+    {
+        return super::network::shortcuts(&app.process_network, false, width, theme);
+    }
     let items = if app.process_info_focus == ProcessInfoFocus::Tabs
         && !app.process_info_tab.content_is_focusable()
     {
@@ -519,6 +540,7 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
         ]
     } else {
         match app.process_info_tab {
+            ProcessInfoTab::Network => Vec::new(),
             ProcessInfoTab::Metrics => vec![
                 ("↑/↓", "scroll"),
                 ("Ctrl+←/→", "tabs"),

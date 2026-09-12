@@ -354,6 +354,14 @@ impl App {
         }
 
         if self.show_process_info_dialog {
+            if self.process_info_tab == crate::app::ProcessInfoTab::Network
+                && self.process_info_focus == ProcessInfoFocus::Content
+                && !matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
+                && !(key.modifiers.contains(KeyModifiers::CONTROL)
+                    && matches!(key.code, KeyCode::Left | KeyCode::Right))
+            {
+                return self.on_network_key(key, false);
+            }
             match key.code {
                 KeyCode::Esc if self.close_process_info_detail() => {}
                 KeyCode::Esc => self.close_process_info_dialog(),
@@ -602,6 +610,7 @@ impl App {
                             self.refresh_process_environment()?
                         }
                         crate::app::ProcessInfoTab::Metrics => {}
+                        crate::app::ProcessInfoTab::Network => self.refresh_network(false),
                     }
                 }
                 KeyCode::Char(ch)
@@ -630,6 +639,10 @@ impl App {
                 _ => {}
             }
             return Ok(());
+        }
+
+        if self.network_browser.visible {
+            return self.on_network_key(key, true);
         }
 
         if self.show_cpu_core_dialog {
@@ -1642,6 +1655,12 @@ impl App {
         }
 
         if self.show_process_info_dialog {
+            let tab_click = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+                && process_info_tab_at(screen_area, mouse.column, mouse.row).is_some();
+            if self.process_info_tab == crate::app::ProcessInfoTab::Network && !tab_click {
+                self.on_network_mouse(mouse, false, screen_area);
+                return;
+            }
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
                     if let Some(tab) = process_info_tab_at(screen_area, mouse.column, mouse.row) {
@@ -1749,6 +1768,11 @@ impl App {
                 }
                 _ => {}
             }
+            return;
+        }
+
+        if self.network_browser.visible {
+            self.on_network_mouse(mouse, true, screen_area);
             return;
         }
 

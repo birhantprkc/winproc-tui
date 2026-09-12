@@ -765,6 +765,7 @@ fn process_info_tabs_and_content_cycle_without_changing_the_fixed_target() {
         app::ProcessInfoTab::Files,
         app::ProcessInfoTab::Dlls,
         app::ProcessInfoTab::Environment,
+        app::ProcessInfoTab::Network,
         app::ProcessInfoTab::Metrics,
     ] {
         app.on_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
@@ -782,6 +783,9 @@ fn process_info_tabs_and_content_cycle_without_changing_the_fixed_target() {
     }
     app.on_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE))
         .unwrap();
+    assert_eq!(app.process_info_tab, app::ProcessInfoTab::Network);
+    app.on_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE))
+        .unwrap();
     assert_eq!(app.process_info_tab, app::ProcessInfoTab::Environment);
     assert_eq!(app.process_info_focus, app::ProcessInfoFocus::Tabs);
 
@@ -797,6 +801,7 @@ fn process_info_tabs_and_content_cycle_without_changing_the_fixed_target() {
     assert_eq!(app.process_environment_filter, filter_before);
 
     for expected in [
+        app::ProcessInfoTab::Network,
         app::ProcessInfoTab::Metrics,
         app::ProcessInfoTab::Image,
         app::ProcessInfoTab::Files,

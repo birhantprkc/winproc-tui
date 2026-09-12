@@ -7,6 +7,7 @@ mod help_and_footer;
 mod investigation_profiles;
 mod log_view;
 mod main_menu;
+mod network;
 mod open_files;
 mod performance;
 mod process_environment;

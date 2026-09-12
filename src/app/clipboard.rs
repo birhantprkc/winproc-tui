@@ -483,7 +483,7 @@ fn format_optional_integer(value: Option<u64>) -> String {
 }
 
 #[cfg(not(test))]
-fn copy_text_to_clipboard(value: &str) -> Result<()> {
+pub(super) fn copy_text_to_clipboard(value: &str) -> Result<()> {
     let mut clipboard = arboard::Clipboard::new()?;
     clipboard.set_text(value.to_string())?;
     Ok(())
@@ -500,7 +500,7 @@ pub(crate) fn last_copied_text() -> Option<String> {
 }
 
 #[cfg(test)]
-fn copy_text_to_clipboard(value: &str) -> Result<()> {
+pub(super) fn copy_text_to_clipboard(value: &str) -> Result<()> {
     LAST_COPIED_TEXT.with(|last| {
         *last.borrow_mut() = Some(value.to_string());
     });

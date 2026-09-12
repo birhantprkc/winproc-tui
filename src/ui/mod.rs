@@ -12,6 +12,7 @@ pub(crate) mod investigation_profiles;
 pub(crate) mod layout;
 pub(crate) mod log_list;
 pub(crate) mod main_menu;
+pub(crate) mod network;
 pub(crate) mod open_files;
 pub(crate) mod process_environment;
 pub(crate) mod process_info_dialog;
@@ -165,7 +166,13 @@ pub(crate) fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         draw_log_dir_dialog(frame, area, app, theme);
     }
     if app.show_process_info_dialog {
+        if app.network_browser.visible {
+            network::draw_browser(frame, area, app, theme);
+            frame.render_widget(ModalScrim::new(theme, ModalScrimStrength::Dialog), area);
+        }
         draw_process_info_dialog(frame, area, app, theme);
+    } else if app.network_browser.visible {
+        network::draw_browser(frame, area, app, theme);
     }
     if app.show_cpu_core_dialog {
         draw_cpu_core_dialog(frame, area, app, theme);

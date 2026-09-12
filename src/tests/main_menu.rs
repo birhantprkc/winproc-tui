@@ -48,6 +48,7 @@ fn menu_uses_the_exact_activity_specific_item_sets() {
             "Profile ▸",
             "Columns",
             "View ▸",
+            "Investigate ▸",
             "Start Recording",
             "Log ▸",
             "Config ▸",
@@ -72,6 +73,7 @@ fn menu_uses_the_exact_activity_specific_item_sets() {
             "Profile ▸",
             "Columns",
             "View ▸",
+            "Investigate ▸",
             "Stop Recording",
             "Config ▸",
             "Help",
@@ -87,6 +89,7 @@ fn menu_uses_the_exact_activity_specific_item_sets() {
             "Open",
             "Columns",
             "View ▸",
+            "Investigate ▸",
             "Stop Recording",
             "Config ▸",
             "Help",
@@ -143,6 +146,7 @@ fn menu_expands_profile_and_toggles_view_checkboxes_inline() {
             "Save As",
             "Columns",
             "View ▸",
+            "Investigate ▸",
             "Start Recording",
             "Log ▸",
             "Config ▸",
@@ -302,11 +306,11 @@ fn menu_navigation_and_actions_reuse_existing_flows() {
     let mut app = make_test_app(1, 10);
     press(&mut app, KeyCode::Esc);
     press(&mut app, KeyCode::End);
-    assert_eq!(app.main_menu_selected, 7);
+    assert_eq!(app.main_menu_selected, 8);
     press(&mut app, KeyCode::Home);
     assert_eq!(app.main_menu_selected, 0);
     press(&mut app, KeyCode::Up);
-    assert_eq!(app.main_menu_selected, 7);
+    assert_eq!(app.main_menu_selected, 8);
     press(&mut app, KeyCode::Down);
     assert_eq!(app.main_menu_selected, 0);
     press(&mut app, KeyCode::End);
@@ -314,7 +318,7 @@ fn menu_navigation_and_actions_reuse_existing_flows() {
     assert_eq!(app.main_menu_selected, 0);
     press(&mut app, KeyCode::End);
     press(&mut app, KeyCode::Up);
-    assert_eq!(app.main_menu_selected, 6);
+    assert_eq!(app.main_menu_selected, 7);
     press(&mut app, KeyCode::Enter);
     assert!(!app.is_main_menu_open());
     assert!(app.show_help);
@@ -423,12 +427,14 @@ fn menu_routes_activity_transitions_and_confirmations() {
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Enter);
     assert!(app.show_recording_no_tracked_warning);
     assert!(!app.is_main_menu_open());
     press(&mut app, KeyCode::Esc);
 
     press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
@@ -452,6 +458,7 @@ fn menu_routes_activity_transitions_and_confirmations() {
 
     let path = start_recording(&mut app, "main-menu-stop");
     press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Down);
