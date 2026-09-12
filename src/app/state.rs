@@ -4982,7 +4982,6 @@ impl App {
         self.process_modules_show_detail = false;
         self.process_environment_show_detail = false;
         self.process_info_tab = tab;
-        self.scheduling.confirmation = None;
         if !tab.content_is_focusable() {
             self.process_info_focus = ProcessInfoFocus::Tabs;
         }
@@ -4999,6 +4998,36 @@ impl App {
     }
 
     pub(crate) fn focus_next_process_info_control(&mut self) {
+        if self.process_info_tab == ProcessInfoTab::Scheduling {
+            if self.activity() == AppActivity::LogView
+                || self
+                    .scheduling
+                    .affinity
+                    .as_ref()
+                    .is_none_or(|r| r.allowed == 0)
+            {
+                self.scheduling.affinity_focused = false;
+                self.process_info_focus = match self.process_info_focus {
+                    ProcessInfoFocus::Tabs => ProcessInfoFocus::Content,
+                    ProcessInfoFocus::Content => ProcessInfoFocus::Tabs,
+                };
+                return;
+            }
+            match (self.process_info_focus, self.scheduling.affinity_focused) {
+                (ProcessInfoFocus::Tabs, _) => {
+                    self.process_info_focus = ProcessInfoFocus::Content;
+                    self.select_priority(self.scheduling.selected);
+                }
+                (ProcessInfoFocus::Content, false) => {
+                    self.select_affinity_cpu(self.scheduling.affinity_selected)
+                }
+                (ProcessInfoFocus::Content, true) => {
+                    self.process_info_focus = ProcessInfoFocus::Tabs
+                }
+            }
+            return;
+        }
+
         if !self.process_info_tab.content_is_focusable() {
             self.process_info_focus = ProcessInfoFocus::Tabs;
             return;
@@ -5010,6 +5039,34 @@ impl App {
     }
 
     pub(crate) fn focus_previous_process_info_control(&mut self) {
+        if self.process_info_tab == ProcessInfoTab::Scheduling {
+            if self.activity() == AppActivity::LogView
+                || self
+                    .scheduling
+                    .affinity
+                    .as_ref()
+                    .is_none_or(|r| r.allowed == 0)
+            {
+                self.scheduling.affinity_focused = false;
+                self.process_info_focus = match self.process_info_focus {
+                    ProcessInfoFocus::Tabs => ProcessInfoFocus::Content,
+                    ProcessInfoFocus::Content => ProcessInfoFocus::Tabs,
+                };
+                return;
+            }
+            match (self.process_info_focus, self.scheduling.affinity_focused) {
+                (ProcessInfoFocus::Tabs, _) => {
+                    self.process_info_focus = ProcessInfoFocus::Content;
+                    self.select_affinity_cpu(self.scheduling.affinity_selected);
+                }
+                (ProcessInfoFocus::Content, true) => self.select_priority(self.scheduling.selected),
+                (ProcessInfoFocus::Content, false) => {
+                    self.process_info_focus = ProcessInfoFocus::Tabs
+                }
+            }
+            return;
+        }
+
         if !self.process_info_tab.content_is_focusable() {
             self.process_info_focus = ProcessInfoFocus::Tabs;
             return;

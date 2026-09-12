@@ -327,6 +327,17 @@ pub(crate) fn sync_layout_state(app: &mut App, screen_area: Rect) {
     app.set_graph_reorder_page_size(graph_reorder_page_size);
     app.set_log_list_page_size(crate::ui::log_list_page_size_for_screen(screen_area));
     app.set_process_info_page_size(process_info_page_size_for_screen(screen_area));
+    if resized
+        && app.show_process_info_dialog
+        && app.process_info_tab == ProcessInfoTab::Scheduling
+        && app.process_info_focus == ProcessInfoFocus::Content
+    {
+        if app.scheduling.affinity_focused {
+            app.select_affinity_cpu(app.scheduling.affinity_selected);
+        } else {
+            app.select_priority(app.scheduling.selected);
+        }
+    }
     app.sync_network_layout(true, screen_area);
     app.sync_file_users_layout(screen_area);
     app.sync_network_layout(false, screen_area);

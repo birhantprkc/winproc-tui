@@ -1,3 +1,5 @@
+mod affinity;
+use crate::model::affinity::{AffinityChange, AffinityReport};
 use crate::model::{
     ProcessIdentity,
     scheduling::{PriorityChange, PriorityClass, PriorityOutcome, PriorityReport},
@@ -30,12 +32,14 @@ pub(crate) struct SchedulingRequest {
     pub(crate) generation: u64,
     pub(crate) identity: ProcessIdentity,
     pub(crate) change: Option<PriorityChange>,
+    pub(crate) affinity_change: Option<AffinityChange>,
 }
 
 pub(crate) struct SchedulingResult {
     pub(crate) generation: u64,
     pub(crate) identity: ProcessIdentity,
     pub(crate) report: PriorityReport,
+    pub(crate) affinity: Option<AffinityReport>,
 }
 
 pub(crate) struct SchedulingWorker {
@@ -71,7 +75,9 @@ impl SchedulingWorker {
                 let matching = session.as_ref().is_some_and(|(generation, identity, _)| {
                     *generation == request.generation && *identity == request.identity
                 });
-                let report = if !matching && request.change.is_some() {
+                let report = if !matching
+                    && (request.change.is_some() || request.affinity_change.is_some())
+                {
                     PriorityReport::unavailable(
                         "Scheduling session expired; refresh before changing priority".into(),
                     )
@@ -102,11 +108,31 @@ impl SchedulingWorker {
                         Err(error) => PriorityReport::unavailable(error),
                     }
                 };
+                let affinity = if let Some((generation, identity, session)) = session.as_mut() {
+                    if *generation == request.generation && *identity == request.identity {
+                        let mut restore = session.process.affinity_restore.take();
+                        let mut affinity = affinity::execute(
+                            &mut session.process,
+                            session.writable,
+                            &mut restore,
+                            request.affinity_change,
+                            still_active,
+                        );
+                        session.process.affinity_restore = restore;
+                        affinity.kinds = session.process.affinity_kinds.clone();
+                        Some(affinity)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 if results
                     .send(SchedulingResult {
                         generation: request.generation,
                         identity: request.identity,
                         report,
+                        affinity,
                     })
                     .is_err()
                 {
@@ -123,7 +149,7 @@ impl SchedulingWorker {
     }
 
     pub(crate) fn request(&self, request: SchedulingRequest) -> Result<(), String> {
-        if request.change.is_none() {
+        if request.change.is_none() && request.affinity_change.is_none() {
             self.active.store(request.generation, Ordering::SeqCst);
         }
         self.sender
@@ -270,6 +296,8 @@ impl<P: PriorityProcess> PrioritySession<P> {
 }
 
 struct NativeProcess {
+    affinity_restore: Option<AffinityChange>,
+    affinity_kinds: Vec<Option<crate::model::CpuCoreKind>>,
     handle: HANDLE,
     creation_time: u64,
     writable: bool,
@@ -312,6 +340,8 @@ impl NativeProcess {
         let mut process = Self {
             handle,
             creation_time: 0,
+            affinity_restore: None,
+            affinity_kinds: super::cpu::affinity_core_kinds(),
             writable,
         };
         let creation_time = process.live_creation_time()?;
@@ -610,6 +640,7 @@ mod tests {
         let worker = SchedulingWorker::spawn();
         worker
             .request(SchedulingRequest {
+                affinity_change: None,
                 generation: 7,
                 identity: identity.clone(),
                 change: None,
@@ -622,6 +653,7 @@ mod tests {
         assert_eq!(first.report.current, Some(PriorityClass::BelowNormal));
         worker
             .request(SchedulingRequest {
+                affinity_change: None,
                 generation: 7,
                 identity: identity.clone(),
                 change: Some(PriorityChange {
@@ -639,6 +671,7 @@ mod tests {
         worker.cancel();
         worker
             .request(SchedulingRequest {
+                affinity_change: None,
                 generation: 7,
                 identity: identity.clone(),
                 change: Some(change(PriorityClass::High)),
@@ -650,6 +683,7 @@ mod tests {
         ));
         worker
             .request(SchedulingRequest {
+                affinity_change: None,
                 generation: 8,
                 identity: identity.clone(),
                 change: None,
@@ -663,8 +697,162 @@ mod tests {
         assert!(reopened.report.restore.is_none());
         drop(worker);
         assert_eq!(external.read().unwrap(), PriorityClass::Normal);
+        // Affinity writes touch only this dedicated child, never the test runner.
+        use affinity::AffinityProcess;
+        // SAFETY: this API has no pointer arguments.
+        if unsafe { winapi::um::winbase::GetActiveProcessorGroupCount() } == 1 {
+            let (original, allowed) = external.read_affinity().unwrap();
+            let first = 1usize << allowed.trailing_zeros();
+            let rest = allowed & !first;
+            let two = if rest == 0 {
+                first
+            } else {
+                first | (1usize << rest.trailing_zeros())
+            };
+            let mut restore = None;
+            for desired in [first, two, allowed] {
+                let expected = external.read_affinity().unwrap().0;
+                let report = affinity::execute(
+                    &mut session.process,
+                    true,
+                    &mut restore,
+                    Some(AffinityChange {
+                        expected,
+                        desired,
+                        restore: false,
+                    }),
+                    || true,
+                );
+                assert_eq!(report.outcome, PriorityOutcome::Changed);
+                assert_eq!(external.read_affinity().unwrap().0, desired);
+            }
+            let request = restore;
+            assert_eq!(
+                affinity::execute(&mut session.process, true, &mut restore, request, || true)
+                    .outcome,
+                PriorityOutcome::Restored
+            );
+            let expected = external.read_affinity().unwrap().0;
+            let report = affinity::execute(
+                &mut session.process,
+                true,
+                &mut restore,
+                Some(AffinityChange {
+                    expected,
+                    desired: first,
+                    restore: false,
+                }),
+                || true,
+            );
+            assert_eq!(report.outcome, PriorityOutcome::Changed);
+            if allowed != first {
+                external.set_affinity(allowed).unwrap();
+                let request = restore;
+                assert!(matches!(
+                    affinity::execute(&mut session.process, true, &mut restore, request, || true)
+                        .outcome,
+                    PriorityOutcome::Failed(_)
+                ));
+            }
+            assert!(external.set_affinity(0).is_err());
+            // Verify the controller keeps the affinity restoration point only within
+            // the current generation and never restores when its worker closes.
+            let worker = SchedulingWorker::spawn();
+            worker
+                .request(SchedulingRequest {
+                    generation: 11,
+                    identity: identity.clone(),
+                    change: None,
+                    affinity_change: None,
+                })
+                .unwrap();
+            let before = worker
+                .receiver
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .affinity
+                .unwrap()
+                .current
+                .unwrap();
+            worker
+                .request(SchedulingRequest {
+                    generation: 11,
+                    identity: identity.clone(),
+                    change: None,
+                    affinity_change: Some(AffinityChange {
+                        expected: before,
+                        desired: first,
+                        restore: false,
+                    }),
+                })
+                .unwrap();
+            let changed = worker
+                .receiver
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .affinity
+                .unwrap();
+            assert_eq!(changed.outcome, PriorityOutcome::Changed);
+            worker
+                .request(SchedulingRequest {
+                    generation: 11,
+                    identity: identity.clone(),
+                    change: None,
+                    affinity_change: changed.restore,
+                })
+                .unwrap();
+            assert_eq!(
+                worker
+                    .receiver
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap()
+                    .affinity
+                    .unwrap()
+                    .outcome,
+                PriorityOutcome::Restored
+            );
+            worker.cancel();
+            worker
+                .request(SchedulingRequest {
+                    generation: 11,
+                    identity: identity.clone(),
+                    change: None,
+                    affinity_change: Some(AffinityChange {
+                        expected: before,
+                        desired: first,
+                        restore: false,
+                    }),
+                })
+                .unwrap();
+            assert!(matches!(
+                worker.receiver.recv_timeout(Duration::from_millis(100)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ));
+            worker
+                .request(SchedulingRequest {
+                    generation: 12,
+                    identity: identity.clone(),
+                    change: None,
+                    affinity_change: None,
+                })
+                .unwrap();
+            let reopened = worker
+                .receiver
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .affinity
+                .unwrap();
+            assert!(reopened.restore.is_none());
+            assert_eq!(reopened.current, Some(before));
+            drop(worker);
+            assert_eq!(external.read_affinity().unwrap().0, before);
+            external.set_affinity(original).unwrap();
+        } else {
+            assert!(external.read_affinity().is_err());
+        }
         child.0.kill().unwrap();
         child.0.wait().unwrap();
+        assert!(external.read_affinity().is_err());
         let report = session.execute(Some(change(PriorityClass::Normal)), || true);
         assert!(
             matches!(report.outcome, PriorityOutcome::Failed(message) if message == "Process exited")

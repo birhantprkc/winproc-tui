@@ -1,3 +1,4 @@
+pub(crate) mod affinity;
 pub(crate) mod columns;
 pub(crate) mod history;
 pub(crate) mod network;

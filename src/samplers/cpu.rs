@@ -89,6 +89,13 @@ struct CpuTopologySample {
     logical_efficiency_classes: Vec<Option<u8>>,
 }
 
+pub(super) fn affinity_core_kinds() -> Vec<Option<CpuCoreKind>> {
+    let topology = collect_cpu_topology();
+    (0..usize::BITS as usize)
+        .map(|index| cpu_core_kind(index, &topology.logical_efficiency_classes))
+        .collect()
+}
+
 fn collect_cpu_topology() -> CpuTopologySample {
     // SAFETY: the size probe supplies a valid output pointer and no data buffer. The second call
     // receives word-aligned storage at least as large as the reported byte count. Parsing below

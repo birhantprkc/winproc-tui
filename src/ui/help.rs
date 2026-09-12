@@ -251,16 +251,28 @@ const PROCESSES_ROWS: &[HelpItem] = &[
 
 const SCHEDULING_ROWS: &[HelpItem] = &[
     HelpItem {
-        key: "↑/↓, Home/End",
-        label: "Select priority; Enter reviews the change",
+        key: "Ctrl+D",
+        label: "Reset focused setting to Normal / all allowed CPUs",
     },
     HelpItem {
-        key: "Enter / Esc (review)",
-        label: "Apply / cancel; changes need a live display",
+        key: "p / a",
+        label: "Focus priority / CPU affinity (single group only)",
+    },
+    HelpItem {
+        key: "Space / click CPU",
+        label: "Toggle and apply immediately",
+    },
+    HelpItem {
+        key: "←/→/↑/↓, Home/End",
+        label: "Priority arrows apply; CPU arrows only move focus",
+    },
+    HelpItem {
+        key: "Enter / Esc",
+        label: "Select focused priority / close; requires live display",
     },
     HelpItem {
         key: "Ctrl+U / Ctrl+Z",
-        label: "Refresh / review restoring the previous value",
+        label: "Refresh / restore the previous value immediately",
     },
     HelpItem {
         key: "PgUp/PgDn",
@@ -268,7 +280,7 @@ const SCHEDULING_ROWS: &[HelpItem] = &[
     },
     HelpItem {
         key: "Tab / Ctrl+←/→",
-        label: "Focus tabs / change tab",
+        label: "Cycle tabs, priority, CPUs / change tab",
     },
 ];
 

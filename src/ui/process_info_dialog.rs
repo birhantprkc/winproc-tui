@@ -50,10 +50,7 @@ pub(crate) fn draw_process_info_dialog(
 ) {
     let layout = process_info_dialog_layout_for_screen(screen);
     frame.render_widget(Clear, layout.area);
-    let mut dialog_theme = theme;
-    if app.scheduling.confirmation.is_some() {
-        dialog_theme.focus_border = theme.warning;
-    }
+    let dialog_theme = theme;
     frame.render_widget(
         modal_block_focused(process_info_title(app, dialog_theme), dialog_theme),
         layout.area,
@@ -532,9 +529,7 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
     {
         return super::network::shortcuts(&app.process_network, false, width, theme);
     }
-    let items = if app.scheduling.confirmation.is_some() {
-        vec![("Enter", "apply"), ("Esc", "cancel")]
-    } else if app.scheduling.applying {
+    let items = if app.scheduling.applying {
         Vec::new()
     } else if app.process_info_focus == ProcessInfoFocus::Tabs
         && !app.process_info_tab.content_is_focusable()
@@ -559,9 +554,21 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
     } else {
         match app.process_info_tab {
             ProcessInfoTab::Network => Vec::new(),
+            ProcessInfoTab::Scheduling if app.scheduling.affinity_focused => vec![
+                ("Space", "toggle"),
+                ("Ctrl+D", "default"),
+                ("p", "priority"),
+                ("←/→/↑/↓", "move"),
+                ("Tab", "next"),
+                ("Ctrl+Z", "restore"),
+                ("Ctrl+U", "refresh"),
+                ("Esc", "close"),
+            ],
             ProcessInfoTab::Scheduling => vec![
-                ("↑/↓", "select"),
-                ("Enter", "review"),
+                ("a", "affinity"),
+                ("←/→", "set"),
+                ("Space", "select"),
+                ("Ctrl+D", "default"),
                 ("Ctrl+Z", "restore"),
                 ("Ctrl+U", "refresh"),
                 ("Tab", "next"),
@@ -622,13 +629,7 @@ fn shortcut_spans(app: &App, width: u16, theme: Theme) -> Vec<Span<'static>> {
         }
         spans.push(Span::styled(
             key.to_string(),
-            if app.scheduling.confirmation.is_some() {
-                Style::default()
-                    .fg(theme.warning)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(theme.key_hint)
-            },
+            Style::default().fg(theme.key_hint),
         ));
         spans.push(Span::styled(
             format!(" {label}"),

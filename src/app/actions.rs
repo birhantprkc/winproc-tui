@@ -354,7 +354,7 @@ impl App {
         }
 
         if self.show_process_info_dialog {
-            if self.scheduling.confirmation.is_some() || self.scheduling.applying {
+            if self.scheduling.applying {
                 self.on_scheduling_key(key);
                 return Ok(());
             }
@@ -1654,7 +1654,7 @@ impl App {
         if self.show_process_info_dialog {
             let tab_click = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
                 && process_info_tab_at(screen_area, mouse.column, mouse.row).is_some();
-            if self.scheduling.confirmation.is_some() || self.scheduling.applying {
+            if self.scheduling.applying {
                 return;
             }
             if self.process_info_tab == crate::app::ProcessInfoTab::Scheduling
